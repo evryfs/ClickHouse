@@ -1,0 +1,55 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the action will run. Triggers the workflow on push or pull request
+# events but only for the master branch
+on:
+  push:
+    tags:
+      - v*-evryfs
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: self-hosted
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+    # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+    - uses: actions/checkout@v2
+      with:
+        submodules: recursive
+
+    # Runs a single command using the runners shell
+    - name: Build builder image
+      run: |
+        docker build --network=host -t clickhouse-builder docker/builder
+
+    # Runs a set of commands using the runners shell
+    - name: Build ClickHouse
+      run: |
+        docker run --network=host --rm --workdir /server --volume $(pwd):/server --cap-add=SYS_PTRACE clickhouse-builder
+
+    # Runs a set of commands using the runners shell
+    - name: Build ClickHouse image from built binaries
+      run: |
+        cd docker/custom
+        sudo /bin/bash setup.sh
+        docker build --network=host -t clickhouse-server .
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v1
+      with:
+        registry: ghcr.io
+        username: ${{ github.repository_owner }}
+        password: ${{ secrets.CR_PAT }}
+
+    - name: Tag and Push Image
+      run: |
+        tag=${GITHUB_REF##*/}
+        final_repo=ghcr.io/evryfs/clickhouse-server:${tag}
+        docker tag clickhouse-server $final_repo
+        docker push $final_repo
