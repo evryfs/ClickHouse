@@ -1,6 +1,5 @@
 #pragma once
 
-#include <sstream>
 #include <optional>
 
 #include <Interpreters/Set.h>
@@ -20,7 +19,7 @@ using FunctionBasePtr = std::shared_ptr<IFunctionBase>;
 class ExpressionActions;
 using ExpressionActionsPtr = std::shared_ptr<ExpressionActions>;
 
-/** A field, that can be stored in two reperesenations:
+/** A field, that can be stored in two representations:
   * - A standalone field.
   * - A field with reference to its position in a block.
   *   It's needed for execution of functions on ranges during
@@ -36,13 +35,13 @@ struct FieldRef : public Field
     FieldRef(T && value) : Field(std::forward<T>(value)) {}
 
     /// Create as reference to field in block.
-    FieldRef(Block * block_, size_t row_idx_, size_t column_idx_)
-        : Field((*block_->getByPosition(column_idx_).column)[row_idx_]),
-        block(block_), row_idx(row_idx_), column_idx(column_idx_) {}
+    FieldRef(ColumnsWithTypeAndName * columns_, size_t row_idx_, size_t column_idx_)
+        : Field((*(*columns_)[column_idx_].column)[row_idx_]),
+          columns(columns_), row_idx(row_idx_), column_idx(column_idx_) {}
 
-    bool isExplicit() const { return block == nullptr; }
+    bool isExplicit() const { return columns == nullptr; }
 
-    Block * block = nullptr;
+    ColumnsWithTypeAndName * columns = nullptr;
     size_t row_idx = 0;
     size_t column_idx = 0;
 };
@@ -232,7 +231,9 @@ public:
         const SelectQueryInfo & query_info,
         const Context & context,
         const Names & key_column_names,
-        const ExpressionActionsPtr & key_expr);
+        const ExpressionActionsPtr & key_expr,
+        bool single_point_ = false,
+        bool strict_ = false);
 
     /// Whether the condition and its negation are feasible in the direct product of single column ranges specified by `hyperrectangle`.
     BoolMask checkInHyperrectangle(
@@ -302,12 +303,15 @@ public:
             const ASTPtr & expr, Block & block_with_constants, Field & out_value, DataTypePtr & out_type);
 
     static Block getBlockWithConstants(
-        const ASTPtr & query, const SyntaxAnalyzerResultPtr & syntax_analyzer_result, const Context & context);
+        const ASTPtr & query, const TreeRewriterResultPtr & syntax_analyzer_result, const Context & context);
 
     static std::optional<Range> applyMonotonicFunctionsChainToRange(
         Range key_range,
-        MonotonicFunctionsChain & functions,
-        DataTypePtr current_type);
+        const MonotonicFunctionsChain & functions,
+        DataTypePtr current_type,
+        bool single_point = false);
+
+    bool matchesExactContinuousRange() const;
 
 private:
     /// The expression is stored as Reverse Polish Notation.
@@ -344,10 +348,10 @@ private:
         Range range;
         size_t key_column = 0;
         /// For FUNCTION_IN_SET, FUNCTION_NOT_IN_SET
-        using MergeTreeSetIndexPtr = std::shared_ptr<MergeTreeSetIndex>;
+        using MergeTreeSetIndexPtr = std::shared_ptr<const MergeTreeSetIndex>;
         MergeTreeSetIndexPtr set_index;
 
-        mutable MonotonicFunctionsChain monotonic_functions_chain;    /// The function execution does not violate the constancy.
+        MonotonicFunctionsChain monotonic_functions_chain;
     };
 
     using RPN = std::vector<RPNElement>;
@@ -397,6 +401,9 @@ private:
         Field & out_value,
         DataTypePtr & out_type);
 
+    bool canConstantBeWrappedByFunctions(
+        const ASTPtr & ast, size_t & out_key_column_num, DataTypePtr & out_key_column_type, Field & out_value, DataTypePtr & out_type);
+
     /// If it's possible to make an RPNElement
     /// that will filter values (possibly tuples) by the content of 'prepared_set',
     /// do it and return true.
@@ -411,6 +418,11 @@ private:
     ColumnIndices key_columns;
     ExpressionActionsPtr key_expr;
     PreparedSets prepared_sets;
+
+    // If true, always allow key_expr to be wrapped by function
+    bool single_point;
+    // If true, do not use always_monotonic information to transform constants
+    bool strict;
 };
 
 }

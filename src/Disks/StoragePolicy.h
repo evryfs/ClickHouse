@@ -4,6 +4,7 @@
 #include <Disks/IDisk.h>
 #include <Disks/IVolume.h>
 #include <Disks/VolumeJBOD.h>
+#include <Disks/VolumeRAID1.h>
 #include <Disks/SingleDiskVolume.h>
 #include <IO/WriteHelpers.h>
 #include <Common/CurrentMetrics.h>
@@ -13,6 +14,7 @@
 
 #include <memory>
 #include <mutex>
+#include <unordered_map>
 #include <unistd.h>
 #include <boost/noncopyable.hpp>
 #include <Poco/Util/AbstractConfiguration.h>
@@ -33,7 +35,14 @@ class StoragePolicy
 public:
     StoragePolicy(String name_, const Poco::Util::AbstractConfiguration & config, const String & config_prefix, DiskSelectorPtr disks);
 
-    StoragePolicy(String name_, VolumesJBOD volumes_, double move_factor_);
+    StoragePolicy(String name_, Volumes volumes_, double move_factor_);
+
+    StoragePolicy(
+        const StoragePolicy & storage_policy,
+        const Poco::Util::AbstractConfiguration & config,
+        const String & config_prefix,
+        DiskSelectorPtr disks
+    );
 
     bool isDefaultPolicy() const;
 
@@ -65,35 +74,35 @@ public:
     /// Do not use this function when it is possible to predict size.
     ReservationPtr makeEmptyReservationOnLargestDisk() const;
 
-    const VolumesJBOD & getVolumes() const { return volumes; }
+    const Volumes & getVolumes() const { return volumes; }
 
     /// Returns number [0., 1.] -- fraction of free space on disk
     /// which should be kept with help of background moves
     double getMoveFactor() const { return move_factor; }
 
-    /// Get volume by index from storage_policy
-    VolumeJBODPtr getVolume(size_t i) const { return (i < volumes_names.size() ? volumes[i] : VolumeJBODPtr()); }
+    /// Get volume by index.
+    VolumePtr getVolume(size_t index) const;
 
-    VolumeJBODPtr getVolumeByName(const String & volume_name) const
-    {
-        auto it = volumes_names.find(volume_name);
-        if (it == volumes_names.end())
-            return {};
-        return getVolume(it->second);
-    }
+    VolumePtr getVolumeByName(const String & volume_name) const;
 
     /// Checks if storage policy can be replaced by another one.
     void checkCompatibleWith(const StoragePolicyPtr & new_storage_policy) const;
 
+    /// Check if we have any volume with stopped merges
+    bool hasAnyVolumeWithDisabledMerges() const;
+
 private:
-    VolumesJBOD volumes;
+    Volumes volumes;
     const String name;
-    std::map<String, size_t> volumes_names;
+    std::unordered_map<String, size_t> volume_index_by_volume_name;
+    std::unordered_map<String, size_t> volume_index_by_disk_name;
 
     /// move_factor from interval [0., 1.]
     /// We move something if disk from this policy
     /// filled more than total_size * move_factor
     double move_factor = 0.1; /// by default move factor is 10%
+
+    void buildVolumeIndices();
 };
 
 

@@ -4,6 +4,12 @@
 namespace DB
 {
 
+namespace ErrorCodes
+{
+    extern const int LOGICAL_ERROR;
+}
+
+
 AggregatingInOrderTransform::AggregatingInOrderTransform(
     Block header, AggregatingTransformParamsPtr params_,
     const SortDescription & group_by_description_, size_t res_block_size_)
@@ -100,9 +106,9 @@ void AggregatingInOrderTransform::consume(Chunk chunk)
         params->aggregator.createStatesAndFillKeyColumnsWithSingleKey(variants, key_columns, key_begin, res_key_columns);
         ++cur_block_size;
     }
-    size_t mid = 0;
-    size_t high = 0;
-    size_t low = -1;
+    ssize_t mid = 0;
+    ssize_t high = 0;
+    ssize_t low = -1;
     /// Will split block into segments with the same key
     while (key_end != rows)
     {
@@ -140,6 +146,24 @@ void AggregatingInOrderTransform::consume(Chunk chunk)
                 block_end_reached = true;
                 need_generate = true;
                 cur_block_size = 0;
+
+                /// Arenas cannot be destroyed here, since later, in FinalizingSimpleTransform
+                /// there will be finalizeChunk(), but even after
+                /// finalizeChunk() we cannot destroy arena, since some memory
+                /// from Arena still in use, so we attach it to the Chunk to
+                /// remove it once it will be consumed.
+                if (params->final)
+                {
+                    if (variants.aggregates_pools.size() != 1)
+                        throw Exception("Too much arenas", ErrorCodes::LOGICAL_ERROR);
+
+                    Arenas arenas(1, std::make_shared<Arena>());
+                    std::swap(variants.aggregates_pools, arenas);
+                    variants.aggregates_pool = variants.aggregates_pools.at(0).get();
+
+                    chunk.setChunkInfo(std::make_shared<AggregatedArenasChunkInfo>(std::move(arenas)));
+                }
+
                 return;
             }
 

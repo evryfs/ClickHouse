@@ -9,9 +9,9 @@ toc_title: Kurulum
 
 ## Sistem Gereksinimleri {#system-requirements}
 
-ClickHouse, x86\_64, AArch64 veya PowerPC64LE CPU mimarisine sahip herhangi bir Linux, FreeBSD veya Mac OS X üzerinde çalışabilir.
+ClickHouse, x86_64, AArch64 veya PowerPC64LE CPU mimarisine sahip herhangi bir Linux, FreeBSD veya Mac OS X üzerinde çalışabilir.
 
-Resmi önceden oluşturulmuş ikili dosyalar genellikle x86\_64 ve kaldıraç sse 4.2 komut seti için derlenir, bu nedenle destekleyen CPU'nun aksi belirtilmedikçe ek bir sistem gereksinimi haline gelir. Geçerli CPU'nun sse 4.2 desteği olup olmadığını kontrol etmek için komut:
+Resmi önceden oluşturulmuş ikili dosyalar genellikle x86_64 ve kaldıraç sse 4.2 komut seti için derlenir, bu nedenle destekleyen CPU'nun aksi belirtilmedikçe ek bir sistem gereksinimi haline gelir. Geçerli CPU'nun sse 4.2 desteği olup olmadığını kontrol etmek için komut:
 
 ``` bash
 $ grep -q sse4_2 /proc/cpuinfo && echo "SSE 4.2 supported" || echo "SSE 4.2 not supported"
@@ -66,7 +66,7 @@ Ayrıca paketleri manuel olarak indirebilir ve yükleyebilirsiniz [burada](https
 
 Resmi önceden derlenmiş kullanılması tavsiye edilir `tgz` Arch ,iv ,es for tüm Linux dağıtım installationları, kurulumu `deb` veya `rpm` paketler mümkün değildir.
 
-Gerekli sürümü ile indirilebilir `curl` veya `wget` depo fromdan https://repo.yandex.ru/clickhouse/tgz/.
+Gerekli sürümü ile indirilebilir `curl` veya `wget` depo fromdan https://repo.clickhouse.tech/tgz/.
 Bundan sonra indirilen arşivler açılmalı ve kurulum komut dosyaları ile kurulmalıdır. En son sürüm için örnek:
 
 ``` bash

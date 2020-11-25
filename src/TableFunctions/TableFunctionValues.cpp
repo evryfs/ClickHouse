@@ -38,7 +38,7 @@ static void parseAndInsertValues(MutableColumns & res_columns, const ASTs & args
         {
             const auto & [value_field, value_type_ptr] = evaluateConstantExpression(args[i], context);
 
-            Field value = convertFieldToType(value_field, *sample_block.getByPosition(0).type, value_type_ptr.get());
+            Field value = convertFieldToTypeOrThrow(value_field, *sample_block.getByPosition(0).type, value_type_ptr.get());
             res_columns[0]->insert(value);
         }
     }
@@ -51,19 +51,21 @@ static void parseAndInsertValues(MutableColumns & res_columns, const ASTs & args
             const Tuple & value_tuple = value_field.safeGet<Tuple>();
 
             if (value_tuple.size() != sample_block.columns())
-                throw Exception("Values size should match with number of columns", ErrorCodes::LOGICAL_ERROR);
+                throw Exception("Values size should match with number of columns", ErrorCodes::BAD_ARGUMENTS);
 
             for (size_t j = 0; j < value_tuple.size(); ++j)
             {
-                Field value = convertFieldToType(value_tuple[j], *sample_block.getByPosition(j).type, value_types_tuple[j].get());
+                Field value = convertFieldToTypeOrThrow(value_tuple[j], *sample_block.getByPosition(j).type, value_types_tuple[j].get());
                 res_columns[j]->insert(value);
             }
         }
     }
 }
 
-StoragePtr TableFunctionValues::executeImpl(const ASTPtr & ast_function, const Context & context, const std::string & table_name) const
+void TableFunctionValues::parseArguments(const ASTPtr & ast_function, const Context & /*context*/)
 {
+
+
     ASTs & args_func = ast_function->children;
 
     if (args_func.size() != 1)
@@ -83,15 +85,26 @@ StoragePtr TableFunctionValues::executeImpl(const ASTPtr & ast_function, const C
             "Got '{}' instead", getName(), args[0]->formatForErrorMessage()),
             ErrorCodes::BAD_ARGUMENTS);
     }
-    std::string structure = args[0]->as<ASTLiteral &>().value.safeGet<String>();
 
-    ColumnsDescription columns = parseColumnsListFromString(structure, context);
+    structure = args[0]->as<ASTLiteral &>().value.safeGet<String>();
+}
+
+ColumnsDescription TableFunctionValues::getActualTableStructure(const Context & context) const
+{
+    return parseColumnsListFromString(structure, context);
+}
+
+StoragePtr TableFunctionValues::executeImpl(const ASTPtr & ast_function, const Context & context, const std::string & table_name, ColumnsDescription /*cached_columns*/) const
+{
+    auto columns = getActualTableStructure(context);
 
     Block sample_block;
     for (const auto & name_type : columns.getOrdinary())
         sample_block.insert({ name_type.type->createColumn(), name_type.type, name_type.name });
 
     MutableColumns res_columns = sample_block.cloneEmptyColumns();
+
+    ASTs & args = ast_function->children.at(0)->children;
 
     /// Parsing other arguments as values and inserting them into columns
     parseAndInsertValues(res_columns, args, sample_block, context);

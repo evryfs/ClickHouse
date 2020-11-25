@@ -1,8 +1,12 @@
+# This file is generated automatically, do not edit. See 'ya.make.in' and use 'utils/generate-ya-make' to regenerate it.
+OWNER(g:clickhouse)
+
 LIBRARY()
 
 PEERDIR(
     clickhouse/src/Common
 )
+
 
 SRCS(
     AggregateFunctionAggThrow.cpp
@@ -14,6 +18,7 @@ SRCS(
     AggregateFunctionCategoricalInformationValue.cpp
     AggregateFunctionCombinatorFactory.cpp
     AggregateFunctionCount.cpp
+    AggregateFunctionDistinct.cpp
     AggregateFunctionEntropy.cpp
     AggregateFunctionFactory.cpp
     AggregateFunctionForEach.cpp
@@ -23,13 +28,14 @@ SRCS(
     AggregateFunctionGroupUniqArray.cpp
     AggregateFunctionHistogram.cpp
     AggregateFunctionIf.cpp
+    AggregateFunctionMLMethod.cpp
     AggregateFunctionMaxIntersections.cpp
     AggregateFunctionMerge.cpp
     AggregateFunctionMinMaxAny.cpp
-    AggregateFunctionMLMethod.cpp
     AggregateFunctionNull.cpp
     AggregateFunctionOrFill.cpp
     AggregateFunctionQuantile.cpp
+    AggregateFunctionRankCorrelation.cpp
     AggregateFunctionResample.cpp
     AggregateFunctionRetention.cpp
     AggregateFunctionSequenceMatch.cpp
@@ -45,10 +51,11 @@ SRCS(
     AggregateFunctionUniqCombined.cpp
     AggregateFunctionUniqUpTo.cpp
     AggregateFunctionWindowFunnel.cpp
-    parseAggregateFunctionParameters.cpp
-    registerAggregateFunctions.cpp
     UniqCombinedBiasData.cpp
     UniqVariadicHash.cpp
+    parseAggregateFunctionParameters.cpp
+    registerAggregateFunctions.cpp
+
 )
 
 END()

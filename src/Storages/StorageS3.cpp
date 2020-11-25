@@ -35,8 +35,6 @@
 #include <Processors/Sources/SourceWithProgress.h>
 #include <Processors/Pipe.h>
 
-#include <sstream>
-
 
 namespace DB
 {
@@ -71,7 +69,7 @@ namespace
             String name_,
             const Block & sample_block,
             const Context & context,
-            const ColumnDefaults & column_defaults,
+            const ColumnsDescription & columns,
             UInt64 max_block_size,
             const CompressionMethod compression_method,
             const std::shared_ptr<Aws::S3::S3Client> & client,
@@ -86,8 +84,8 @@ namespace
             read_buf = wrapReadBufferWithCompressionMethod(std::make_unique<ReadBufferFromS3>(client, bucket, key), compression_method);
             reader = FormatFactory::instance().getInput(format, *read_buf, sample_block, context, max_block_size);
 
-            if (!column_defaults.empty())
-                reader = std::make_shared<AddingDefaultsBlockInputStream>(reader, column_defaults, context);
+            if (columns.hasDefaults())
+                reader = std::make_shared<AddingDefaultsBlockInputStream>(reader, columns, context);
         }
 
         String getName() const override
@@ -153,7 +151,7 @@ namespace
             : sample_block(sample_block_)
         {
             write_buf = wrapWriteBufferWithCompressionMethod(
-                std::make_unique<WriteBufferFromS3>(client, bucket, key, min_upload_part_size), compression_method, 3);
+                std::make_unique<WriteBufferFromS3>(client, bucket, key, min_upload_part_size, true), compression_method, 3);
             writer = FormatFactory::instance().getOutput(format, *write_buf, sample_block, context);
         }
 
@@ -196,18 +194,21 @@ StorageS3::StorageS3(
     UInt64 min_upload_part_size_,
     const ColumnsDescription & columns_,
     const ConstraintsDescription & constraints_,
-    Context & context_,
-    const String & compression_method_ = "")
+    const Context & context_,
+    const String & compression_method_)
     : IStorage(table_id_)
     , uri(uri_)
-    , context_global(context_)
+    , global_context(context_.getGlobalContext())
     , format_name(format_name_)
     , min_upload_part_size(min_upload_part_size_)
     , compression_method(compression_method_)
+    , name(uri_.storage_name)
 {
-    context_global.getRemoteHostFilter().checkURL(uri_.uri);
-    setColumns(columns_);
-    setConstraints(constraints_);
+    global_context.getRemoteHostFilter().checkURL(uri_.uri);
+    StorageInMemoryMetadata storage_metadata;
+    storage_metadata.setColumns(columns_);
+    storage_metadata.setConstraints(constraints_);
+    setInMemoryMetadata(storage_metadata);
 
     auto settings = context_.getStorageS3Settings().getSettings(uri.endpoint);
     Aws::Auth::AWSCredentials credentials(access_key_id_, secret_access_key_);
@@ -215,7 +216,8 @@ StorageS3::StorageS3(
         credentials = Aws::Auth::AWSCredentials(std::move(settings.access_key_id), std::move(settings.secret_access_key));
 
     client = S3::ClientFactory::instance().create(
-        uri_.endpoint, uri_.is_virtual_hosted_style, access_key_id_, secret_access_key_, std::move(settings.headers));
+        uri_.endpoint, uri_.is_virtual_hosted_style, access_key_id_, secret_access_key_, std::move(settings.headers),
+        context_.getRemoteHostFilter(), context_.getGlobalContext().getSettingsRef().s3_max_redirects);
 }
 
 
@@ -251,17 +253,14 @@ Strings listFilesWithRegexpMatching(Aws::S3::S3Client & client, const S3::URI & 
         outcome = client.ListObjectsV2(request);
         if (!outcome.IsSuccess())
         {
-            std::ostringstream message;
-            message << "Could not list objects in bucket " << quoteString(request.GetBucket())
-                << " with prefix " << quoteString(request.GetPrefix());
-
             if (page > 1)
-                message << ", page " << std::to_string(page);
+                throw Exception(ErrorCodes::S3_ERROR, "Could not list objects in bucket {} with prefix {}, page {}, S3 exception: {}, message: {}",
+                            quoteString(request.GetBucket()), quoteString(request.GetPrefix()), page,
+                            backQuote(outcome.GetError().GetExceptionName()), quoteString(outcome.GetError().GetMessage()));
 
-            message << ", S3 exception: " + backQuote(outcome.GetError().GetExceptionName())
-                << ", message: " + quoteString(outcome.GetError().GetMessage());
-
-            throw Exception(message.str(), ErrorCodes::S3_ERROR);
+            throw Exception(ErrorCodes::S3_ERROR, "Could not list objects in bucket {} with prefix {}, S3 exception: {}, message: {}",
+                            quoteString(request.GetBucket()), quoteString(request.GetPrefix()),
+                            backQuote(outcome.GetError().GetExceptionName()), quoteString(outcome.GetError().GetMessage()));
         }
 
         for (const auto & row : outcome.GetResult().GetContents())
@@ -281,9 +280,10 @@ Strings listFilesWithRegexpMatching(Aws::S3::S3Client & client, const S3::URI & 
 }
 
 
-Pipes StorageS3::read(
+Pipe StorageS3::read(
     const Names & column_names,
-    const SelectQueryInfo & /*query_info*/,
+    const StorageMetadataPtr & metadata_snapshot,
+    SelectQueryInfo & /*query_info*/,
     const Context & context,
     QueryProcessingStage::Enum /*processed_stage*/,
     size_t max_block_size,
@@ -306,29 +306,33 @@ Pipes StorageS3::read(
             need_file_column,
             format_name,
             getName(),
-            getHeaderBlock(column_names),
+            metadata_snapshot->getSampleBlock(),
             context,
-            getColumns().getDefaults(),
+            metadata_snapshot->getColumns(),
             max_block_size,
             chooseCompressionMethod(uri.endpoint, compression_method),
             client,
             uri.bucket,
             key));
 
-    return narrowPipes(std::move(pipes), num_streams);
+    auto pipe = Pipe::unitePipes(std::move(pipes));
+    // It's possible to have many buckets read from s3, resize(num_streams) might open too many handles at the same time.
+    // Using narrowPipe instead.
+    narrowPipe(pipe, num_streams);
+    return pipe;
 }
 
-BlockOutputStreamPtr StorageS3::write(const ASTPtr & /*query*/, const Context & /*context*/)
+BlockOutputStreamPtr StorageS3::write(const ASTPtr & /*query*/, const StorageMetadataPtr & metadata_snapshot, const Context & /*context*/)
 {
     return std::make_shared<StorageS3BlockOutputStream>(
-        format_name, min_upload_part_size, getSampleBlock(), context_global,
-        chooseCompressionMethod(uri.endpoint, compression_method),
+        format_name, min_upload_part_size, metadata_snapshot->getSampleBlock(),
+        global_context, chooseCompressionMethod(uri.endpoint, compression_method),
         client, uri.bucket, uri.key);
 }
 
-void registerStorageS3(StorageFactory & factory)
+void registerStorageS3Impl(const String & name, StorageFactory & factory)
 {
-    factory.registerStorage("S3", [](const StorageFactory::Arguments & args)
+    factory.registerStorage(name, [](const StorageFactory::Arguments & args)
     {
         ASTs & engine_args = args.engine_args;
 
@@ -343,8 +347,6 @@ void registerStorageS3(StorageFactory & factory)
         Poco::URI uri (url);
         S3::URI s3_uri (uri);
 
-        String format_name = engine_args[engine_args.size() - 1]->as<ASTLiteral &>().value.safeGet<String>();
-
         String access_key_id;
         String secret_access_key;
         if (engine_args.size() >= 4)
@@ -356,16 +358,44 @@ void registerStorageS3(StorageFactory & factory)
         UInt64 min_upload_part_size = args.local_context.getSettingsRef().s3_min_upload_part_size;
 
         String compression_method;
+        String format_name;
         if (engine_args.size() == 3 || engine_args.size() == 5)
+        {
             compression_method = engine_args.back()->as<ASTLiteral &>().value.safeGet<String>();
+            format_name = engine_args[engine_args.size() - 2]->as<ASTLiteral &>().value.safeGet<String>();
+        }
         else
+        {
             compression_method = "auto";
+            format_name = engine_args.back()->as<ASTLiteral &>().value.safeGet<String>();
+        }
 
-        return StorageS3::create(s3_uri, access_key_id, secret_access_key, args.table_id, format_name, min_upload_part_size, args.columns, args.constraints, args.context);
+        return StorageS3::create(
+            s3_uri,
+            access_key_id,
+            secret_access_key,
+            args.table_id,
+            format_name,
+            min_upload_part_size,
+            args.columns,
+            args.constraints,
+            args.context,
+            compression_method
+        );
     },
     {
         .source_access_type = AccessType::S3,
     });
+}
+
+void registerStorageS3(StorageFactory & factory)
+{
+    return registerStorageS3Impl("S3", factory);
+}
+
+void registerStorageCOS(StorageFactory & factory)
+{
+    return registerStorageS3Impl("COSN", factory);
 }
 
 NamesAndTypesList StorageS3::getVirtuals() const

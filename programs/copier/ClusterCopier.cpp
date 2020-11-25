@@ -25,7 +25,7 @@ void ClusterCopier::init()
 
     task_description_watch_callback = [this] (const Coordination::WatchResponse & response)
     {
-        if (response.error != Coordination::ZOK)
+        if (response.error != Coordination::Error::ZOK)
             return;
         UInt64 version = ++task_description_version;
         LOG_DEBUG(log, "Task description should be updated, local version {}", version);
@@ -162,7 +162,7 @@ void ClusterCopier::discoverShardPartitions(const ConnectionTimeouts & timeouts,
 
     if (!missing_partitions.empty())
     {
-        std::stringstream ss;
+        WriteBufferFromOwnString ss;
         for (const String & missing_partition : missing_partitions)
             ss << " " << missing_partition;
 
@@ -206,11 +206,11 @@ void ClusterCopier::uploadTaskDescription(const std::string & task_path, const s
 
     zookeeper->createAncestors(local_task_description_path);
     auto code = zookeeper->tryCreate(local_task_description_path, task_config_str, zkutil::CreateMode::Persistent);
-    if (code && force)
+    if (code != Coordination::Error::ZOK && force)
         zookeeper->createOrUpdate(local_task_description_path, task_config_str, zkutil::CreateMode::Persistent);
 
     LOG_DEBUG(log, "Task description {} uploaded to {} with result {} ({})",
-        ((code && !force) ? "not " : ""), local_task_description_path, code, zookeeper->error2string(code));
+        ((code != Coordination::Error::ZOK && !force) ? "not " : ""), local_task_description_path, code, Coordination::errorMessage(code));
 }
 
 void ClusterCopier::reloadTaskDescription()
@@ -220,10 +220,10 @@ void ClusterCopier::reloadTaskDescription()
 
     String task_config_str;
     Coordination::Stat stat{};
-    int code;
+    Coordination::Error code;
 
     zookeeper->tryGetWatch(task_description_path, task_config_str, &stat, task_description_watch_callback, &code);
-    if (code)
+    if (code != Coordination::Error::ZOK)
         throw Exception("Can't get description node " + task_description_path, ErrorCodes::BAD_ARGUMENTS);
 
     LOG_DEBUG(log, "Loading description, zxid={}", task_description_current_stat.czxid);
@@ -328,7 +328,7 @@ void ClusterCopier::process(const ConnectionTimeouts & timeouts)
 
 /*
  * Creates task worker node and checks maximum number of workers not to exceed the limit.
- * To achive this we have to check version of workers_version_path node and create current_worker_path
+ * To achieve this we have to check version of workers_version_path node and create current_worker_path
  * node atomically.
  * */
 
@@ -376,10 +376,10 @@ zkutil::EphemeralNodeHolder::Ptr ClusterCopier::createTaskWorkerNodeAndWaitIfNee
             Coordination::Responses responses;
             auto code = zookeeper->tryMulti(ops, responses);
 
-            if (code == Coordination::ZOK || code == Coordination::ZNODEEXISTS)
+            if (code == Coordination::Error::ZOK || code == Coordination::Error::ZNODEEXISTS)
                 return std::make_shared<zkutil::EphemeralNodeHolder>(current_worker_path, *zookeeper, false, false, description);
 
-            if (code == Coordination::ZBADVERSION)
+            if (code == Coordination::Error::ZBADVERSION)
             {
                 ++num_bad_version_errors;
 
@@ -529,7 +529,7 @@ TaskStatus ClusterCopier::tryMoveAllPiecesToDestinationTable(const TaskTable & t
         inject_fault = value < move_fault_probability;
     }
 
-    LOG_DEBUG(log, "Try to move  {} to destionation table", partition_name);
+    LOG_DEBUG(log, "Try to move {} to destination table", partition_name);
 
     auto zookeeper = context.getZooKeeper();
 
@@ -545,7 +545,7 @@ TaskStatus ClusterCopier::tryMoveAllPiecesToDestinationTable(const TaskTable & t
     }
     catch (const Coordination::Exception & e)
     {
-        if (e.code == Coordination::ZNODEEXISTS)
+        if (e.code == Coordination::Error::ZNODEEXISTS)
         {
             LOG_DEBUG(log, "Someone is already moving pieces {}", current_partition_attach_is_active);
             return TaskStatus::Active;
@@ -745,7 +745,7 @@ bool ClusterCopier::tryDropPartitionPiece(
     }
     catch (const Coordination::Exception & e)
     {
-        if (e.code == Coordination::ZNODEEXISTS)
+        if (e.code == Coordination::Error::ZNODEEXISTS)
         {
             LOG_DEBUG(log, "Partition {} piece {} is cleaning now by somebody, sleep", task_partition.name, toString(current_piece_number));
             std::this_thread::sleep_for(default_sleep_time);
@@ -778,7 +778,7 @@ bool ClusterCopier::tryDropPartitionPiece(
         }
         catch (const Coordination::Exception & e)
         {
-            if (e.code == Coordination::ZNODEEXISTS)
+            if (e.code == Coordination::Error::ZNODEEXISTS)
             {
                 LOG_DEBUG(log, "Partition {} is being filled now by somebody, sleep", task_partition.name);
                 return false;
@@ -795,7 +795,7 @@ bool ClusterCopier::tryDropPartitionPiece(
         /// Remove all status nodes
         {
             Strings children;
-            if (zookeeper->tryGetChildren(current_shards_path, children) == Coordination::ZOK)
+            if (zookeeper->tryGetChildren(current_shards_path, children) == Coordination::Error::ZOK)
                 for (const auto & child : children)
                 {
                     zookeeper->removeRecursive(current_shards_path + "/" + child);
@@ -845,7 +845,7 @@ bool ClusterCopier::tryDropPartitionPiece(
         }
 
         LOG_INFO(log, "Partition {} piece {} was dropped on cluster {}", task_partition.name, toString(current_piece_number), task_table.cluster_push_name);
-        if (zookeeper->tryCreate(current_shards_path, host_id, zkutil::CreateMode::Persistent) == Coordination::ZNODEEXISTS)
+        if (zookeeper->tryCreate(current_shards_path, host_id, zkutil::CreateMode::Persistent) == Coordination::Error::ZNODEEXISTS)
             zookeeper->set(current_shards_path, host_id);
     }
 
@@ -1001,7 +1001,7 @@ bool ClusterCopier::tryProcessTable(const ConnectionTimeouts & timeouts, TaskTab
                 }
                 catch (...)
                 {
-                    tryLogCurrentException(log, "Some error occured while moving pieces to destination table for partition " + partition_name);
+                    tryLogCurrentException(log, "Some error occurred while moving pieces to destination table for partition " + partition_name);
                 }
             }
         }
@@ -1233,7 +1233,7 @@ TaskStatus ClusterCopier::processPartitionPieceTaskImpl(
     }
     catch (const Coordination::Exception & e)
     {
-        if (e.code == Coordination::ZNODEEXISTS)
+        if (e.code == Coordination::Error::ZNODEEXISTS)
         {
             LOG_DEBUG(log, "Someone is already processing {}", current_task_piece_is_active_path);
             return TaskStatus::Active;
@@ -1271,9 +1271,9 @@ TaskStatus ClusterCopier::processPartitionPieceTaskImpl(
     {
         String state_finished = TaskStateWithOwner::getData(TaskState::Finished, host_id);
         auto res = zookeeper->tryCreate(current_task_piece_status_path, state_finished, zkutil::CreateMode::Persistent);
-        if (res == Coordination::ZNODEEXISTS)
+        if (res == Coordination::Error::ZNODEEXISTS)
             LOG_DEBUG(log, "Partition {} piece {} is absent on current replica of a shard. But other replicas have already marked it as done.", task_partition.name, current_piece_number);
-        if (res == Coordination::ZOK)
+        if (res == Coordination::Error::ZOK)
             LOG_DEBUG(log, "Partition {} piece {} is absent on current replica of a shard. Will mark it as done. Other replicas will do the same.", task_partition.name, current_piece_number);
         return TaskStatus::Finished;
     }
@@ -1323,7 +1323,7 @@ TaskStatus ClusterCopier::processPartitionPieceTaskImpl(
     /// Try start processing, create node about it
     {
         String start_state = TaskStateWithOwner::getData(TaskState::Started, host_id);
-        CleanStateClock new_clean_state_clock (zookeeper, piece_is_dirty_flag_path, piece_is_dirty_cleaned_path);
+        CleanStateClock new_clean_state_clock(zookeeper, piece_is_dirty_flag_path, piece_is_dirty_cleaned_path);
         if (clean_state_clock != new_clean_state_clock)
         {
             LOG_INFO(log, "Partition {} piece {} clean state changed, cowardly bailing", task_partition.name, toString(current_piece_number));
@@ -1360,7 +1360,8 @@ TaskStatus ClusterCopier::processPartitionPieceTaskImpl(
 
         LOG_DEBUG(log, "Create destination tables. Query: {}", query);
         UInt64 shards = executeQueryOnCluster(task_table.cluster_push, query, task_cluster->settings_push, PoolMode::GET_MANY);
-        LOG_DEBUG(log, "Destination tables {} have been created on {} shards of {}", getQuotedTable(task_table.table_push), shards, task_table.cluster_push->getShardCount());
+        LOG_DEBUG(log, "Destination tables {} have been created on {} shards of {}",
+            getQuotedTable(task_table.table_push), shards, task_table.cluster_push->getShardCount());
     }
 
     /// Do the copying
@@ -1391,18 +1392,18 @@ TaskStatus ClusterCopier::processPartitionPieceTaskImpl(
 
         try
         {
+            std::unique_ptr<Context> context_select = std::make_unique<Context>(context);
+            context_select->setSettings(task_cluster->settings_pull);
+
+            std::unique_ptr<Context> context_insert = std::make_unique<Context>(context);
+            context_insert->setSettings(task_cluster->settings_push);
+
             /// Custom INSERT SELECT implementation
-            Context context_select = context;
-            context_select.setSettings(task_cluster->settings_pull);
-
-            Context context_insert = context;
-            context_insert.setSettings(task_cluster->settings_push);
-
             BlockInputStreamPtr input;
             BlockOutputStreamPtr output;
             {
-                BlockIO io_select = InterpreterFactory::get(query_select_ast, context_select)->execute();
-                BlockIO io_insert = InterpreterFactory::get(query_insert_ast, context_insert)->execute();
+                BlockIO io_select = InterpreterFactory::get(query_select_ast, *context_select)->execute();
+                BlockIO io_insert = InterpreterFactory::get(query_insert_ast, *context_insert)->execute();
 
                 input = io_select.getInputStream();
                 output = io_insert.out;
@@ -1429,7 +1430,7 @@ TaskStatus ClusterCopier::processPartitionPieceTaskImpl(
                 {
                     Coordination::ExistsResponse status = future_is_dirty_checker.get();
 
-                    if (status.error != Coordination::ZNONODE)
+                    if (status.error != Coordination::Error::ZNONODE)
                     {
                         LogicalClock dirt_discovery_epoch (status.stat.mzxid);
                         if (dirt_discovery_epoch == clean_state_clock.discovery_zxid)
@@ -1476,7 +1477,9 @@ TaskStatus ClusterCopier::processPartitionPieceTaskImpl(
     {
         auto create_query_push_ast = rewriteCreateQueryStorage(task_shard.current_pull_table_create_query,
                                                                task_table.table_push, task_table.engine_push_ast);
-        create_query_push_ast->as<ASTCreateQuery &>().if_not_exists = true;
+        auto & create = create_query_push_ast->as<ASTCreateQuery &>();
+        create.if_not_exists = true;
+        InterpreterCreateQuery::prepareOnClusterQuery(create, context, task_table.cluster_push_name);
         String query = queryToString(create_query_push_ast);
 
         LOG_DEBUG(log, "Create destination tables. Query: {}", query);
@@ -1648,7 +1651,7 @@ void ClusterCopier::createShardInternalTables(const ConnectionTimeouts & timeout
 
         dropAndCreateLocalTable(create_table_split_piece_ast);
 
-        /// Create auxilary split tables for each piece
+        /// Create auxiliary split tables for each piece
         for (const auto & piece_number : ext::range(0, task_table.number_of_splits))
         {
             const auto & storage_piece_split_ast = task_table.auxiliary_engine_split_asts[piece_number];

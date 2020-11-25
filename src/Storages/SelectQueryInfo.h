@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Interpreters/PreparedSets.h>
+#include <Interpreters/DatabaseAndTableWithAlias.h>
 #include <Core/SortDescription.h>
 #include <Core/Names.h>
 #include <memory>
@@ -10,6 +11,9 @@ namespace DB
 
 class ExpressionActions;
 using ExpressionActionsPtr = std::shared_ptr<ExpressionActions>;
+
+class ActionsDAG;
+using ActionsDAGPtr = std::shared_ptr<ActionsDAG>;
 
 struct PrewhereInfo
 {
@@ -28,10 +32,25 @@ struct PrewhereInfo
         : prewhere_actions(std::move(prewhere_actions_)), prewhere_column_name(std::move(prewhere_column_name_)) {}
 };
 
+/// Same as PrewhereInfo, but with ActionsDAG
+struct PrewhereDAGInfo
+{
+    ActionsDAGPtr alias_actions;
+    ActionsDAGPtr prewhere_actions;
+    ActionsDAGPtr remove_columns_actions;
+    String prewhere_column_name;
+    bool remove_prewhere_column = false;
+    bool need_filter = false;
+
+    PrewhereDAGInfo() = default;
+    explicit PrewhereDAGInfo(ActionsDAGPtr prewhere_actions_, String prewhere_column_name_)
+            : prewhere_actions(std::move(prewhere_actions_)), prewhere_column_name(std::move(prewhere_column_name_)) {}
+};
+
 /// Helper struct to store all the information about the filter expression.
 struct FilterInfo
 {
-    ExpressionActionsPtr actions;
+    ActionsDAGPtr actions_dag;
     String column_name;
     bool do_remove_column = false;
 };
@@ -53,15 +72,18 @@ struct InputOrderInfo
 };
 
 using PrewhereInfoPtr = std::shared_ptr<PrewhereInfo>;
+using PrewhereDAGInfoPtr = std::shared_ptr<PrewhereDAGInfo>;
 using FilterInfoPtr = std::shared_ptr<FilterInfo>;
 using InputOrderInfoPtr = std::shared_ptr<const InputOrderInfo>;
 
-struct SyntaxAnalyzerResult;
-using SyntaxAnalyzerResultPtr = std::shared_ptr<const SyntaxAnalyzerResult>;
+struct TreeRewriterResult;
+using TreeRewriterResultPtr = std::shared_ptr<const TreeRewriterResult>;
 
 class ReadInOrderOptimizer;
 using ReadInOrderOptimizerPtr = std::shared_ptr<const ReadInOrderOptimizer>;
 
+class Cluster;
+using ClusterPtr = std::shared_ptr<Cluster>;
 
 /** Query along with some additional data,
   *  that can be used during query processing
@@ -70,14 +92,19 @@ using ReadInOrderOptimizerPtr = std::shared_ptr<const ReadInOrderOptimizer>;
 struct SelectQueryInfo
 {
     ASTPtr query;
+    ASTPtr view_query; /// Optimized VIEW query
 
-    SyntaxAnalyzerResultPtr syntax_analyzer_result;
+    /// For optimize_skip_unused_shards.
+    /// Can be modified in getQueryProcessingStage()
+    ClusterPtr cluster;
+
+    TreeRewriterResultPtr syntax_analyzer_result;
 
     PrewhereInfoPtr prewhere_info;
 
     ReadInOrderOptimizerPtr order_optimizer;
-    /// We can modify it while reading from storage
-    mutable InputOrderInfoPtr input_order_info;
+    /// Can be modified while reading from storage
+    InputOrderInfoPtr input_order_info;
 
     /// Prepared sets are used for indices by storage engine.
     /// Example: x IN (1, 2, 3)

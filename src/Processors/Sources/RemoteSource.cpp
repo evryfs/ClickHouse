@@ -19,8 +19,22 @@ RemoteSource::RemoteSource(RemoteQueryExecutorPtr executor, bool add_aggregation
 
 RemoteSource::~RemoteSource() = default;
 
+ISource::Status RemoteSource::prepare()
+{
+    Status status = SourceWithProgress::prepare();
+    /// To avoid resetting the connection (because of "unfinished" query) in the
+    /// RemoteQueryExecutor it should be finished explicitly.
+    if (status == Status::Finished)
+        query_executor->finish();
+    return status;
+}
+
 Chunk RemoteSource::generate()
 {
+    /// onCancel() will do the cancel if the query was sent.
+    if (was_query_canceled)
+        return {};
+
     if (!was_query_sent)
     {
         /// Progress method will be called on Progress packet.
@@ -62,6 +76,7 @@ Chunk RemoteSource::generate()
 
 void RemoteSource::onCancel()
 {
+    was_query_canceled = true;
     query_executor->cancel();
 }
 
@@ -113,18 +128,10 @@ Pipe createRemoteSourcePipe(
     Pipe pipe(std::make_shared<RemoteSource>(query_executor, add_aggregation_info));
 
     if (add_totals)
-    {
-        auto totals_source = std::make_shared<RemoteTotalsSource>(query_executor);
-        pipe.setTotalsPort(&totals_source->getPort());
-        pipe.addProcessors({std::move(totals_source)});
-    }
+        pipe.addTotalsSource(std::make_shared<RemoteTotalsSource>(query_executor));
 
     if (add_extremes)
-    {
-        auto extremes_source = std::make_shared<RemoteExtremesSource>(query_executor);
-        pipe.setExtremesPort(&extremes_source->getPort());
-        pipe.addProcessors({std::move(extremes_source)});
-    }
+        pipe.addExtremesSource(std::make_shared<RemoteExtremesSource>(query_executor));
 
     return pipe;
 }

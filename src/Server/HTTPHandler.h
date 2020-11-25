@@ -4,6 +4,7 @@
 
 #include <Poco/Net/HTTPRequestHandler.h>
 
+#include <Common/CurrentThread.h>
 #include <Common/CurrentMetrics.h>
 #include <Common/HTMLForm.h>
 #include <Core/Names.h>
@@ -72,10 +73,12 @@ private:
 
     /// Also initializes 'used_output'.
     void processQuery(
+        Context & context,
         Poco::Net::HTTPServerRequest & request,
         HTMLForm & params,
         Poco::Net::HTTPServerResponse & response,
-        Output & used_output);
+        Output & used_output,
+        std::optional<CurrentThread::QueryScope> & query_scope);
 
     void trySendExceptionToClient(
         const std::string & s,

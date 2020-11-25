@@ -170,6 +170,11 @@ public:
 
     void updateWeakHash32(WeakHash32 & hash) const override;
 
+    void updateHashFast(SipHash & hash) const override
+    {
+        data->updateHashFast(hash);
+    }
+
     ColumnPtr filter(const Filter & filt, ssize_t result_size_hint) const override;
     ColumnPtr replicate(const Offsets & offsets) const override;
     ColumnPtr permute(const Permutation & perm, size_t limit) const override;
@@ -191,6 +196,10 @@ public:
     {
         return data->compareAt(0, 0, *assert_cast<const ColumnConst &>(rhs).data, nan_direction_hint);
     }
+
+    void compareColumn(const IColumn & rhs, size_t rhs_row_num,
+                       PaddedPODArray<UInt64> * row_indexes, PaddedPODArray<Int8> & compare_results,
+                       int direction, int nan_direction_hint) const override;
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector & selector) const override;
 
@@ -235,6 +244,8 @@ public:
     /// The constant value. It is valid even if the size of the column is 0.
     template <typename T>
     T getValue() const { return getField().safeGet<NearestFieldType<T>>(); }
+
+    bool isCollationSupported() const override { return data->isCollationSupported(); }
 };
 
 }

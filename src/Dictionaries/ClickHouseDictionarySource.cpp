@@ -17,12 +17,13 @@
 
 namespace DB
 {
-namespace ErrorCodes
-{
-}
-
 
 static const size_t MAX_CONNECTIONS = 16;
+
+inline static UInt16 getPortFromContext(const Context & context, bool secure)
+{
+    return secure ? context.getTCPPortSecure().value_or(0) : context.getTCPPort();
+}
 
 static ConnectionPoolWithFailoverPtr createPool(
     const std::string & host,
@@ -40,6 +41,8 @@ static ConnectionPoolWithFailoverPtr createPool(
         db,
         user,
         password,
+        "", /* cluster */
+        "", /* cluster_secret */
         "ClickHouseDictionarySource",
         Protocol::Compression::Enable,
         secure ? Protocol::Secure::Enable : Protocol::Secure::Disable));
@@ -53,29 +56,33 @@ ClickHouseDictionarySource::ClickHouseDictionarySource(
     const std::string & path_to_settings,
     const std::string & config_prefix,
     const Block & sample_block_,
-    const Context & context_)
+    const Context & context_,
+    const std::string & default_database)
     : update_time{std::chrono::system_clock::from_time_t(0)}
     , dict_struct{dict_struct_}
-    , host{config.getString(config_prefix + ".host")}
-    , port(config.getInt(config_prefix + ".port"))
     , secure(config.getBool(config_prefix + ".secure", false))
-    , user{config.getString(config_prefix + ".user", "")}
+    , host{config.getString(config_prefix + ".host", "localhost")}
+    , port(config.getInt(config_prefix + ".port", getPortFromContext(context_, secure)))
+    , user{config.getString(config_prefix + ".user", "default")}
     , password{config.getString(config_prefix + ".password", "")}
-    , db{config.getString(config_prefix + ".db", "")}
+    , db{config.getString(config_prefix + ".db", default_database)}
     , table{config.getString(config_prefix + ".table")}
     , where{config.getString(config_prefix + ".where", "")}
     , update_field{config.getString(config_prefix + ".update_field", "")}
     , invalidate_query{config.getString(config_prefix + ".invalidate_query", "")}
-    , query_builder{dict_struct, db, table, where, IdentifierQuotingStyle::Backticks}
+    , query_builder{dict_struct, db, "", table, where, IdentifierQuotingStyle::Backticks}
     , sample_block{sample_block_}
     , context(context_)
-    , is_local{isLocalAddress({host, port}, secure ? context.getTCPPortSecure().value_or(0) : context.getTCPPort())}
+    , is_local{isLocalAddress({host, port}, getPortFromContext(context_, secure))}
     , pool{is_local ? nullptr : createPool(host, port, secure, db, user, password)}
     , load_all_query{query_builder.composeLoadAllQuery()}
 {
     /// We should set user info even for the case when the dictionary is loaded in-process (without TCP communication).
-    context.setUser(user, password, Poco::Net::SocketAddress("127.0.0.1", 0));
-    context = copyContextAndApplySettings(path_to_settings, context, config);
+    if (is_local)
+    {
+        context.setUser(user, password, Poco::Net::SocketAddress("127.0.0.1", 0));
+        context = copyContextAndApplySettings(path_to_settings, context, config);
+    }
 
     /// Query context is needed because some code in executeQuery function may assume it exists.
     /// Current example is Context::getSampleBlockCache from InterpreterSelectWithUnionQuery::getSampleBlock.
@@ -86,9 +93,9 @@ ClickHouseDictionarySource::ClickHouseDictionarySource(
 ClickHouseDictionarySource::ClickHouseDictionarySource(const ClickHouseDictionarySource & other)
     : update_time{other.update_time}
     , dict_struct{other.dict_struct}
+    , secure{other.secure}
     , host{other.host}
     , port{other.port}
-    , secure{other.secure}
     , user{other.user}
     , password{other.password}
     , db{other.db}
@@ -97,7 +104,7 @@ ClickHouseDictionarySource::ClickHouseDictionarySource(const ClickHouseDictionar
     , update_field{other.update_field}
     , invalidate_query{other.invalidate_query}
     , invalidate_query_response{other.invalidate_query_response}
-    , query_builder{dict_struct, db, table, where, IdentifierQuotingStyle::Backticks}
+    , query_builder{dict_struct, db, "", table, where, IdentifierQuotingStyle::Backticks}
     , sample_block{other.sample_block}
     , context(other.context)
     , is_local{other.is_local}
@@ -226,9 +233,11 @@ void registerDictionarySourceClickHouse(DictionarySourceFactory & factory)
                                  const std::string & config_prefix,
                                  Block & sample_block,
                                  const Context & context,
+                                 const std::string & default_database,
                                  bool /* check_config */) -> DictionarySourcePtr
     {
-        return std::make_unique<ClickHouseDictionarySource>(dict_struct, config, config_prefix, config_prefix + ".clickhouse", sample_block, context);
+        return std::make_unique<ClickHouseDictionarySource>(
+            dict_struct, config, config_prefix, config_prefix + ".clickhouse", sample_block, context, default_database);
     };
     factory.registerSource("clickhouse", create_table_source);
 }

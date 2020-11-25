@@ -42,7 +42,8 @@ DictionaryPtr DictionaryFactory::create(
 
     const DictionaryStructure dict_struct{config, config_prefix + ".structure"};
 
-    DictionarySourcePtr source_ptr = DictionarySourceFactory::instance().create(name, config, config_prefix + ".source", dict_struct, context, check_source_config);
+    DictionarySourcePtr source_ptr = DictionarySourceFactory::instance().create(
+        name, config, config_prefix + ".source", dict_struct, context, config.getString(config_prefix + ".database", ""), check_source_config);
     LOG_TRACE(&Poco::Logger::get("DictionaryFactory"), "Created dictionary source '{}' for dictionary '{}'", source_ptr->toString(), name);
 
     const auto & layout_type = keys.front();
@@ -61,7 +62,7 @@ DictionaryPtr DictionaryFactory::create(
 
 DictionaryPtr DictionaryFactory::create(const std::string & name, const ASTCreateQuery & ast, const Context & context) const
 {
-    auto configuration = getDictionaryConfigurationFromAST(ast);
+    auto configuration = getDictionaryConfigurationFromAST(ast, context);
     return DictionaryFactory::create(name, *configuration, "dictionary", context, true);
 }
 

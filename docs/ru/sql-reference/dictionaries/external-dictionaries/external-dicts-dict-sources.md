@@ -1,3 +1,8 @@
+---
+toc_priority: 43
+toc_title: "\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a\u0438\u0020\u0432\u043d\u0435\u0448\u043d\u0438\u0445\u0020\u0441\u043b\u043e\u0432\u0430\u0440\u0435\u0439"
+---
+
 # Источники внешних словарей {#dicts-external-dicts-dict-sources}
 
 Внешний словарь можно подключить из множества источников.
@@ -19,7 +24,7 @@
 </yandex>
 ```
 
-Аналогичный [DDL-запрос](../../statements/create.md#create-dictionary-query):
+Аналогичный [DDL-запрос](../../statements/create/dictionary.md#create-dictionary-query):
 
 ``` sql
 CREATE DICTIONARY dict_name (...)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <mutex>
+#include <atomic>
 #include <thread>
 #include <ext/shared_ptr_helper.h>
 #include <Core/NamesAndTypes.h>
@@ -8,7 +9,6 @@
 #include <Storages/IStorage.h>
 #include <DataStreams/IBlockOutputStream.h>
 #include <Poco/Event.h>
-#include <Interpreters/Context.h>
 
 
 namespace Poco { class Logger; }
@@ -53,22 +53,41 @@ public:
 
     std::string getName() const override { return "Buffer"; }
 
-    QueryProcessingStage::Enum getQueryProcessingStage(const Context &, QueryProcessingStage::Enum /*to_stage*/, const ASTPtr &) const override;
+    QueryProcessingStage::Enum getQueryProcessingStage(const Context &, QueryProcessingStage::Enum /*to_stage*/, SelectQueryInfo &) const override;
 
-    Pipes read(
+    Pipe read(
         const Names & column_names,
-        const SelectQueryInfo & query_info,
+        const StorageMetadataPtr & /*metadata_snapshot*/,
+        SelectQueryInfo & query_info,
         const Context & context,
         QueryProcessingStage::Enum processed_stage,
         size_t max_block_size,
         unsigned num_streams) override;
 
-    BlockOutputStreamPtr write(const ASTPtr & query, const Context & context) override;
+    void read(
+        QueryPlan & query_plan,
+        const Names & column_names,
+        const StorageMetadataPtr & metadata_snapshot,
+        SelectQueryInfo & query_info,
+        const Context & context,
+        QueryProcessingStage::Enum processed_stage,
+        size_t max_block_size,
+        unsigned num_streams) override;
+
+    bool supportsParallelInsert() const override { return true; }
+
+    BlockOutputStreamPtr write(const ASTPtr & query, const StorageMetadataPtr & /*metadata_snapshot*/, const Context & context) override;
 
     void startup() override;
     /// Flush all buffers into the subordinate table and stop background thread.
     void shutdown() override;
-    bool optimize(const ASTPtr & query, const ASTPtr & partition, bool final, bool deduplicate, const Context & context) override;
+    bool optimize(
+        const ASTPtr & query,
+        const StorageMetadataPtr & metadata_snapshot,
+        const ASTPtr & partition,
+        bool final,
+        bool deduplicate,
+        const Context & context) override;
 
     bool supportsSampling() const override { return true; }
     bool supportsPrewhere() const override
@@ -83,18 +102,22 @@ public:
     bool supportsFinal() const override { return true; }
     bool supportsIndexForIn() const override { return true; }
 
-    bool mayBenefitFromIndexForIn(const ASTPtr & left_in_operand, const Context & query_context) const override;
+    bool mayBenefitFromIndexForIn(const ASTPtr & left_in_operand, const Context & query_context, const StorageMetadataPtr & metadata_snapshot) const override;
 
-    void checkAlterIsPossible(const AlterCommands & commands, const Settings & /* settings */) override;
+    void checkAlterIsPossible(const AlterCommands & commands, const Settings & /* settings */) const override;
 
     /// The structure of the subordinate table is not checked and does not change.
-    void alter(const AlterCommands & params, const Context & context, TableStructureWriteLockHolder & table_lock_holder) override;
+    void alter(const AlterCommands & params, const Context & context, TableLockHolder & table_lock_holder) override;
 
     std::optional<UInt64> totalRows() const override;
     std::optional<UInt64> totalBytes() const override;
 
+    std::optional<UInt64> lifetimeRows() const override { return writes.rows; }
+    std::optional<UInt64> lifetimeBytes() const override { return writes.bytes; }
+
+
 private:
-    Context global_context;
+    const Context & global_context;
 
     struct Buffer
     {
@@ -113,11 +136,20 @@ private:
     StorageID destination_id;
     bool allow_materialized;
 
+    /// Lifetime
+    struct LifeTimeWrites
+    {
+        std::atomic<size_t> rows = 0;
+        std::atomic<size_t> bytes = 0;
+    } writes;
+
     Poco::Logger * log;
 
-    void flushAllBuffers(bool check_thresholds = true);
-    /// Reset the buffer. If check_thresholds is set - resets only if thresholds are exceeded.
-    void flushBuffer(Buffer & buffer, bool check_thresholds, bool locked = false);
+    void flushAllBuffers(bool check_thresholds = true, bool reset_blocks_structure = false);
+    /// Reset the buffer. If check_thresholds is set - resets only if thresholds
+    /// are exceeded. If reset_block_structure is set - clears inner block
+    /// structure inside buffer (useful in OPTIMIZE and ALTER).
+    void flushBuffer(Buffer & buffer, bool check_thresholds, bool locked = false, bool reset_block_structure = false);
     bool checkThresholds(const Buffer & buffer, time_t current_time, size_t additional_rows = 0, size_t additional_bytes = 0) const;
     bool checkThresholdsImpl(size_t rows, size_t bytes, time_t time_passed) const;
 
@@ -138,7 +170,7 @@ protected:
         const StorageID & table_id_,
         const ColumnsDescription & columns_,
         const ConstraintsDescription & constraints_,
-        Context & context_,
+        const Context & context_,
         size_t num_shards_,
         const Thresholds & min_thresholds_,
         const Thresholds & max_thresholds_,

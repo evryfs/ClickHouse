@@ -2,6 +2,7 @@
 
 #include <string.h>
 #include <cxxabi.h>
+#include <cstdlib>
 #include <Poco/String.h>
 #include <common/logger_useful.h>
 #include <IO/WriteHelpers.h>
@@ -13,6 +14,7 @@
 #include <common/errnoToString.h>
 #include <Common/formatReadable.h>
 #include <Common/filesystemHelpers.h>
+#include <Common/ErrorCodes.h>
 #include <filesystem>
 
 #if !defined(ARCADIA_BUILD)
@@ -36,15 +38,16 @@ namespace ErrorCodes
 Exception::Exception(const std::string & msg, int code)
     : Poco::Exception(msg, code)
 {
-    // In debug builds, treat LOGICAL_ERROR as an assertion failure.
+    // In debug builds and builds with sanitizers, treat LOGICAL_ERROR as an assertion failure.
     // Log the message before we fail.
-#ifndef NDEBUG
+#ifdef ABORT_ON_LOGICAL_ERROR
     if (code == ErrorCodes::LOGICAL_ERROR)
     {
-        LOG_ERROR(&Poco::Logger::root(), "Logical error: '{}'.", msg);
-        assert(false);
+        LOG_FATAL(&Poco::Logger::root(), "Logical error: '{}'.", msg);
+        abort();
     }
 #endif
+    ErrorCodes::increment(code);
 }
 
 Exception::Exception(CreateFromPocoTag, const Poco::Exception & exc)
@@ -56,7 +59,7 @@ Exception::Exception(CreateFromPocoTag, const Poco::Exception & exc)
 }
 
 Exception::Exception(CreateFromSTDTag, const std::exception & exc)
-    : Poco::Exception(String(typeid(exc).name()) + ": " + String(exc.what()), ErrorCodes::STD_EXCEPTION)
+    : Poco::Exception(demangle(typeid(exc).name()) + ": " + String(exc.what()), ErrorCodes::STD_EXCEPTION)
 {
 #ifdef STD_EXCEPTION_HAS_STACK_TRACE
     set_stack_trace(exc.get_stack_trace_frames(), exc.get_stack_trace_size());
@@ -149,7 +152,7 @@ static void getNotEnoughMemoryMessage(std::string & msg)
 #if defined(__linux__)
     try
     {
-        static constexpr size_t buf_size = 4096;
+        static constexpr size_t buf_size = 1024;
         char buf[buf_size];
 
         UInt64 max_map_count = 0;
@@ -205,7 +208,19 @@ static std::string getExtraExceptionInfo(const std::exception & e)
         if (const auto * file_exception = dynamic_cast<const Poco::FileException *>(&e))
         {
             if (file_exception->code() == ENOSPC)
-                getNoSpaceLeftInfoMessage(file_exception->message(), msg);
+            {
+                /// See Poco::FileImpl::handleLastErrorImpl(...)
+                constexpr const char * expected_error_message = "no space left on device: ";
+                if (startsWith(file_exception->message(), expected_error_message))
+                {
+                    String path = file_exception->message().substr(strlen(expected_error_message));
+                    getNoSpaceLeftInfoMessage(path, msg);
+                }
+                else
+                {
+                    msg += "\nCannot print extra info for Poco::Exception";
+                }
+            }
         }
         else if (const auto * errno_exception = dynamic_cast<const DB::ErrnoException *>(&e))
         {
@@ -230,7 +245,7 @@ static std::string getExtraExceptionInfo(const std::exception & e)
 
 std::string getCurrentExceptionMessage(bool with_stacktrace, bool check_embedded_stacktrace /*= false*/, bool with_extra_info /*= true*/)
 {
-    std::stringstream stream;
+    WriteBufferFromOwnString stream;
 
     try
     {
@@ -349,7 +364,7 @@ void tryLogException(std::exception_ptr e, Poco::Logger * logger, const std::str
 
 std::string getExceptionMessage(const Exception & e, bool with_stacktrace, bool check_embedded_stacktrace)
 {
-    std::stringstream stream;
+    WriteBufferFromOwnString stream;
 
     try
     {

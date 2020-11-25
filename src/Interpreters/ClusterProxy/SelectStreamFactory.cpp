@@ -10,9 +10,11 @@
 
 #include <common/logger_useful.h>
 #include <Processors/Pipe.h>
-#include <Processors/Transforms/ConvertingTransform.h>
 #include <Processors/Sources/RemoteSource.h>
 #include <Processors/Sources/DelayedSource.h>
+#include <Processors/QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/ExpressionStep.h>
+
 
 namespace ProfileEvents
 {
@@ -68,42 +70,42 @@ SelectStreamFactory::SelectStreamFactory(
 namespace
 {
 
-QueryPipeline createLocalStream(
-    const ASTPtr & query_ast, const Block & header, const Context & context, QueryProcessingStage::Enum processed_stage)
+std::unique_ptr<QueryPlan> createLocalPlan(
+    const ASTPtr & query_ast,
+    const Block & header,
+    const Context & context,
+    QueryProcessingStage::Enum processed_stage)
 {
     checkStackSize();
 
-    InterpreterSelectQuery interpreter{query_ast, context, SelectQueryOptions(processed_stage)};
+    auto query_plan = std::make_unique<QueryPlan>();
 
-    auto pipeline = interpreter.execute().pipeline;
+    InterpreterSelectQuery interpreter(query_ast, context, SelectQueryOptions(processed_stage));
+    interpreter.buildQueryPlan(*query_plan);
 
-    pipeline.addSimpleTransform([&](const Block & source_header)
-    {
-        return std::make_shared<ConvertingTransform>(
-                source_header, header, ConvertingTransform::MatchColumnsMode::Name);
-    });
+    /// Convert header structure to expected.
+    /// Also we ignore constants from result and replace it with constants from header.
+    /// It is needed for functions like `now64()` or `randConstant()` because their values may be different.
+    auto convert_actions_dag = ActionsDAG::makeConvertingActions(
+            query_plan->getCurrentDataStream().header.getColumnsWithTypeAndName(),
+            header.getColumnsWithTypeAndName(),
+            ActionsDAG::MatchColumnsMode::Name,
+            true);
 
-    /** Materialization is needed, since from remote servers the constants come materialized.
-      * If you do not do this, different types (Const and non-Const) columns will be produced in different threads,
-      * And this is not allowed, since all code is based on the assumption that in the block stream all types are the same.
-      */
+    auto converting = std::make_unique<ExpressionStep>(query_plan->getCurrentDataStream(), convert_actions_dag);
+    converting->setStepDescription("Convert block structure for query from local replica");
+    query_plan->addStep(std::move(converting));
 
-    /* Now we don't need to materialize constants, because RemoteBlockInputStream will ignore constant and take it from header.
-     * So, streams from different threads will always have the same header.
-     */
-    /// return std::make_shared<MaterializingBlockInputStream>(stream);
-
-    pipeline.setMaxThreads(1);
-    return pipeline;
+    return query_plan;
 }
 
 String formattedAST(const ASTPtr & ast)
 {
     if (!ast)
         return {};
-    std::stringstream ss;
-    formatAST(*ast, ss, false, true);
-    return ss.str();
+    WriteBufferFromOwnString buf;
+    formatAST(*ast, buf, false, true);
+    return buf.str();
 }
 
 }
@@ -113,7 +115,9 @@ void SelectStreamFactory::createForShard(
     const String &, const ASTPtr & query_ast,
     const Context & context, const ThrottlerPtr & throttler,
     const SelectQueryInfo &,
-    Pipes & res)
+    std::vector<QueryPlanPtr> & plans,
+    Pipes & remote_pipes,
+    Pipes & delayed_pipes)
 {
     bool add_agg_info = processed_stage == QueryProcessingStage::WithMergeableState;
     bool add_totals = false;
@@ -130,7 +134,7 @@ void SelectStreamFactory::createForShard(
 
     auto emplace_local_stream = [&]()
     {
-        res.emplace_back(createLocalStream(modified_query_ast, header, context, processed_stage).getPipe());
+        plans.emplace_back(createLocalPlan(modified_query_ast, header, context, processed_stage));
     };
 
     String modified_query = formattedAST(modified_query_ast);
@@ -143,7 +147,7 @@ void SelectStreamFactory::createForShard(
         if (!table_func_ptr)
             remote_query_executor->setMainTable(main_table);
 
-        res.emplace_back(createRemoteSourcePipe(remote_query_executor, add_agg_info, add_totals, add_extremes));
+        remote_pipes.emplace_back(createRemoteSourcePipe(remote_query_executor, add_agg_info, add_totals, add_extremes));
     };
 
     const auto & settings = context.getSettingsRef();
@@ -154,8 +158,7 @@ void SelectStreamFactory::createForShard(
 
         if (table_func_ptr)
         {
-            const auto * table_function = table_func_ptr->as<ASTFunction>();
-            TableFunctionPtr table_function_ptr = TableFunctionFactory::instance().get(table_function->name, context);
+            TableFunctionPtr table_function_ptr = TableFunctionFactory::instance().get(table_func_ptr, context);
             main_table_storage = table_function_ptr->execute(table_func_ptr, context, table_function_ptr->getName());
         }
         else
@@ -170,7 +173,9 @@ void SelectStreamFactory::createForShard(
             ProfileEvents::increment(ProfileEvents::DistributedConnectionMissingTable);
             if (shard_info.hasRemoteConnections())
             {
-                LOG_WARNING(&Poco::Logger::get("ClusterProxy::SelectStreamFactory"), "There is no table {} on local replica of shard {}, will try remote replicas.", main_table.getNameForLogs(), shard_info.shard_num);
+                LOG_WARNING(&Poco::Logger::get("ClusterProxy::SelectStreamFactory"),
+                    "There is no table {} on local replica of shard {}, will try remote replicas.",
+                    main_table.getNameForLogs(), shard_info.shard_num);
                 emplace_remote_stream();
             }
             else
@@ -254,7 +259,8 @@ void SelectStreamFactory::createForShard(
             catch (const Exception & ex)
             {
                 if (ex.code() == ErrorCodes::ALL_CONNECTION_TRIES_FAILED)
-                    LOG_WARNING(&Poco::Logger::get("ClusterProxy::SelectStreamFactory"), "Connections to remote replicas of local shard {} failed, will use stale local replica", shard_num);
+                    LOG_WARNING(&Poco::Logger::get("ClusterProxy::SelectStreamFactory"),
+                        "Connections to remote replicas of local shard {} failed, will use stale local replica", shard_num);
                 else
                     throw;
             }
@@ -267,7 +273,10 @@ void SelectStreamFactory::createForShard(
             }
 
             if (try_results.empty() || local_delay < max_remote_delay)
-                return createLocalStream(modified_query_ast, header, context, stage).getPipe();
+            {
+                auto plan = createLocalPlan(modified_query_ast, header, context, stage);
+                return QueryPipeline::getPipe(std::move(*plan->buildQueryPipeline()));
+            }
             else
             {
                 std::vector<IConnectionPool::Entry> connections;
@@ -282,7 +291,7 @@ void SelectStreamFactory::createForShard(
             }
         };
 
-        res.emplace_back(createDelayedPipe(header, lazily_create_stream));
+        delayed_pipes.emplace_back(createDelayedPipe(header, lazily_create_stream, add_totals, add_extremes));
     }
     else
         emplace_remote_stream();

@@ -4,6 +4,7 @@
 #include <Common/FieldVisitors.h>
 #include <IO/WriteBuffer.h>
 #include <IO/WriteHelpers.h>
+#include <IO/Operators.h>
 
 #include <common/logger_useful.h>
 
@@ -41,7 +42,7 @@ void CollapsingSortedAlgorithm::reportIncorrectData()
     if (!log)
         return;
 
-    std::stringstream s;
+    WriteBufferFromOwnString s;
     auto & sort_columns = *last_row.sort_columns;
     for (size_t i = 0, size = sort_columns.size(); i < size; ++i)
     {
@@ -114,6 +115,14 @@ IMergingAlgorithm::Status CollapsingSortedAlgorithm::merge()
     while (queue.isValid())
     {
         auto current = queue.current();
+
+        if (current->isLast() && skipLastRowFor(current->order))
+        {
+            /// Get the next block from the corresponding source, if there is one.
+            queue.removeTop();
+            return Status(current.impl->order);
+        }
+
         Int8 sign = assert_cast<const ColumnInt8 &>(*current->all_columns[sign_column_number]).getData()[current->pos];
 
         RowRef current_row;

@@ -14,13 +14,17 @@ unset (_current_dir_name)
 set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w")
 
+if (SANITIZE STREQUAL "undefined")
+    # 3rd-party libraries usually not intended to work with UBSan.
+    add_compile_options(-fno-sanitize=undefined)
+endif()
+
 set_property(DIRECTORY PROPERTY EXCLUDE_FROM_ALL 1)
 
 add_subdirectory (boost-cmake)
 add_subdirectory (cctz-cmake)
 add_subdirectory (consistent-hashing-sumbur)
 add_subdirectory (consistent-hashing)
-add_subdirectory (croaring)
 add_subdirectory (FastMemcpy)
 add_subdirectory (hyperscan-cmake)
 add_subdirectory (jemalloc-cmake)
@@ -32,8 +36,10 @@ add_subdirectory (murmurhash)
 add_subdirectory (replxx-cmake)
 add_subdirectory (ryu-cmake)
 add_subdirectory (unixodbc-cmake)
+add_subdirectory (xz)
 
 add_subdirectory (poco-cmake)
+add_subdirectory (croaring-cmake)
 
 
 # TODO: refactor the contrib libraries below this comment.
@@ -102,9 +108,15 @@ if (USE_INTERNAL_SSL_LIBRARY)
     add_library(OpenSSL::SSL ALIAS ${OPENSSL_SSL_LIBRARY})
 endif ()
 
-if (ENABLE_LDAP AND USE_INTERNAL_LDAP_LIBRARY)
+if (USE_INTERNAL_LDAP_LIBRARY)
     add_subdirectory (openldap-cmake)
 endif ()
+
+# Should go before:
+# - mariadb-connector-c
+# - aws-s3-cmake
+# - sentry-native
+add_subdirectory (curl-cmake)
 
 function(mysql_support)
     set(CLIENT_PLUGIN_CACHING_SHA2_PASSWORD STATIC)
@@ -151,9 +163,6 @@ if(USE_INTERNAL_SNAPPY_LIBRARY)
     add_subdirectory(snappy)
 
     set (SNAPPY_INCLUDE_DIR "${ClickHouse_SOURCE_DIR}/contrib/snappy")
-    if(SANITIZE STREQUAL "undefined")
-        target_compile_options(${SNAPPY_LIBRARY} PRIVATE -fno-sanitize=undefined)
-    endif()
 endif()
 
 if (USE_INTERNAL_PARQUET_LIBRARY)
@@ -216,6 +225,7 @@ if (USE_INTERNAL_AVRO_LIBRARY)
 endif()
 
 if(USE_INTERNAL_GTEST_LIBRARY)
+    set(GOOGLETEST_VERSION 1.10.0) # master
     # Google Test from sources
     add_subdirectory(${ClickHouse_SOURCE_DIR}/contrib/googletest/googletest ${CMAKE_CURRENT_BINARY_DIR}/googletest)
     # avoid problems with <regexp.h>
@@ -264,23 +274,12 @@ if (USE_INTERNAL_GRPC_LIBRARY)
 endif ()
 
 if (USE_INTERNAL_AWS_S3_LIBRARY)
-    set (save_CMAKE_C_FLAGS ${CMAKE_C_FLAGS})
-    set (save_CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES})
-    set (save_CMAKE_REQUIRED_INCLUDES ${CMAKE_REQUIRED_INCLUDES})
-    set (save_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
-    set (save_CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH})
-    add_subdirectory(curl-cmake)
-    set (CMAKE_C_FLAGS ${save_CMAKE_C_FLAGS})
-    set (CMAKE_REQUIRED_LIBRARIES ${save_CMAKE_REQUIRED_LIBRARIES})
-    set (CMAKE_CMAKE_REQUIRED_INCLUDES ${save_CMAKE_REQUIRED_INCLUDES})
-    set (CMAKE_REQUIRED_FLAGS ${save_CMAKE_REQUIRED_FLAGS})
-    set (CMAKE_CMAKE_MODULE_PATH ${save_CMAKE_MODULE_PATH})
     add_subdirectory(aws-s3-cmake)
 
     # The library is large - avoid bloat.
     target_compile_options (aws_s3 PRIVATE -g0)
     target_compile_options (aws_s3_checksums PRIVATE -g0)
-    target_compile_options (curl PRIVATE -g0)
+
 endif ()
 
 if (USE_BASE64)
@@ -295,10 +294,34 @@ if (USE_FASTOPS)
     add_subdirectory (fastops-cmake)
 endif()
 
-if (USE_CASSANDRA)
+if (USE_AMQPCPP OR USE_CASSANDRA)
     add_subdirectory (libuv)
+endif()
+if (USE_AMQPCPP)
+    add_subdirectory (amqpcpp-cmake)
+endif()
+if (USE_CASSANDRA)
     add_subdirectory (cassandra)
+endif()
+
+if (USE_SENTRY)
+    add_subdirectory (sentry-native)
 endif()
 
 add_subdirectory (fmtlib-cmake)
 
+if (USE_STATS)
+    add_subdirectory (stats-cmake)
+    add_subdirectory (gcem)
+endif()
+
+if (USE_KRB5)
+    add_subdirectory (krb5-cmake)
+    if (USE_CYRUS_SASL)
+        add_subdirectory (cyrus-sasl-cmake)
+    endif()
+endif()
+
+if (USE_INTERNAL_ROCKSDB_LIBRARY)
+    add_subdirectory(rocksdb-cmake)
+endif()

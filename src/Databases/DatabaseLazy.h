@@ -22,9 +22,13 @@ public:
 
     String getEngineName() const override { return "Lazy"; }
 
+    bool canContainMergeTreeTables() const override { return false; }
+
+    bool canContainDistributedTables() const override { return false; }
+
     void loadStoredObjects(
         Context & context,
-        bool has_force_restore_data_flag) override;
+        bool has_force_restore_data_flag, bool force_attach) override;
 
     void createTable(
         const Context & context,
@@ -42,7 +46,8 @@ public:
         const String & table_name,
         IDatabase & to_database,
         const String & to_table_name,
-        bool exchange) override;
+        bool exchange,
+        bool dictionary) override;
 
     void alterTable(
         const Context & context,

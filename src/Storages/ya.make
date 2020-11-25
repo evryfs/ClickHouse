@@ -1,30 +1,41 @@
+# This file is generated automatically, do not edit. See 'ya.make.in' and use 'utils/generate-ya-make' to regenerate it.
+OWNER(g:clickhouse)
+
 LIBRARY()
 
 PEERDIR(
     clickhouse/src/Common
     contrib/libs/sparsehash
+    contrib/libs/poco/MongoDB
 )
 
+
 SRCS(
+    AlterCommands.cpp
+    ColumnDefault.cpp
+    ColumnsDescription.cpp
+    ConstraintsDescription.cpp
     Distributed/DirectoryMonitor.cpp
     Distributed/DistributedBlockOutputStream.cpp
+    IStorage.cpp
+    IndicesDescription.cpp
+    JoinSettings.cpp
+    KeyDescription.cpp
     LiveView/StorageLiveView.cpp
+    LiveView/TemporaryLiveViewCleaner.cpp
     MergeTree/ActiveDataPartSet.cpp
     MergeTree/AllMergeSelector.cpp
-    MergeTree/BackgroundProcessingPool.cpp
+    MergeTree/BackgroundJobsExecutor.cpp
     MergeTree/BoolMask.cpp
-    MergeTree/checkDataPart.cpp
     MergeTree/DataPartsExchange.cpp
     MergeTree/EphemeralLockInZooKeeper.cpp
-    MergeTree/IMergedBlockOutputStream.cpp
     MergeTree/IMergeTreeDataPart.cpp
     MergeTree/IMergeTreeDataPartWriter.cpp
     MergeTree/IMergeTreeReader.cpp
+    MergeTree/IMergedBlockOutputStream.cpp
     MergeTree/KeyCondition.cpp
     MergeTree/LevelMergeSelector.cpp
-    MergeTree/localBackup.cpp
-    MergeTree/MergedBlockOutputStream.cpp
-    MergeTree/MergedColumnOnlyOutputStream.cpp
+    MergeTree/MergeAlgorithm.cpp
     MergeTree/MergeList.cpp
     MergeTree/MergeTreeBaseSelectProcessor.cpp
     MergeTree/MergeTreeBlockOutputStream.cpp
@@ -33,10 +44,13 @@ SRCS(
     MergeTree/MergeTreeDataMergerMutator.cpp
     MergeTree/MergeTreeDataPartChecksum.cpp
     MergeTree/MergeTreeDataPartCompact.cpp
+    MergeTree/MergeTreeDataPartInMemory.cpp
     MergeTree/MergeTreeDataPartTTLInfo.cpp
     MergeTree/MergeTreeDataPartType.cpp
     MergeTree/MergeTreeDataPartWide.cpp
     MergeTree/MergeTreeDataPartWriterCompact.cpp
+    MergeTree/MergeTreeDataPartWriterInMemory.cpp
+    MergeTree/MergeTreeDataPartWriterOnDisk.cpp
     MergeTree/MergeTreeDataPartWriterWide.cpp
     MergeTree/MergeTreeDataSelectExecutor.cpp
     MergeTree/MergeTreeDataWriter.cpp
@@ -53,26 +67,34 @@ SRCS(
     MergeTree/MergeTreeIndices.cpp
     MergeTree/MergeTreeMarksLoader.cpp
     MergeTree/MergeTreeMutationEntry.cpp
+    MergeTree/MergeTreeMutationStatus.cpp
     MergeTree/MergeTreePartInfo.cpp
     MergeTree/MergeTreePartition.cpp
     MergeTree/MergeTreePartsMover.cpp
     MergeTree/MergeTreeRangeReader.cpp
+    MergeTree/MergeTreeReadPool.cpp
     MergeTree/MergeTreeReaderCompact.cpp
+    MergeTree/MergeTreeReaderInMemory.cpp
     MergeTree/MergeTreeReaderStream.cpp
     MergeTree/MergeTreeReaderWide.cpp
-    MergeTree/MergeTreeReadPool.cpp
     MergeTree/MergeTreeReverseSelectProcessor.cpp
     MergeTree/MergeTreeSelectProcessor.cpp
     MergeTree/MergeTreeSequentialSource.cpp
     MergeTree/MergeTreeSettings.cpp
     MergeTree/MergeTreeThreadSelectBlockInputProcessor.cpp
     MergeTree/MergeTreeWhereOptimizer.cpp
-    MergeTree/registerStorageMergeTree.cpp
+    MergeTree/MergeTreeWriteAheadLog.cpp
+    MergeTree/MergeType.cpp
+    MergeTree/MergedBlockOutputStream.cpp
+    MergeTree/MergedColumnOnlyOutputStream.cpp
+    MergeTree/PartitionPruner.cpp
+    MergeTree/ReplicatedFetchList.cpp
     MergeTree/ReplicatedMergeTreeAddress.cpp
     MergeTree/ReplicatedMergeTreeAltersSequence.cpp
     MergeTree/ReplicatedMergeTreeBlockOutputStream.cpp
     MergeTree/ReplicatedMergeTreeCleanupThread.cpp
     MergeTree/ReplicatedMergeTreeLogEntry.cpp
+    MergeTree/ReplicatedMergeTreeMergeStrategyPicker.cpp
     MergeTree/ReplicatedMergeTreeMutationEntry.cpp
     MergeTree/ReplicatedMergeTreePartCheckThread.cpp
     MergeTree/ReplicatedMergeTreePartHeader.cpp
@@ -81,30 +103,66 @@ SRCS(
     MergeTree/ReplicatedMergeTreeTableMetadata.cpp
     MergeTree/SimpleMergeSelector.cpp
     MergeTree/TTLMergeSelector.cpp
-    System/attachSystemTables.cpp
+    MergeTree/checkDataPart.cpp
+    MergeTree/localBackup.cpp
+    MergeTree/registerStorageMergeTree.cpp
+    MutationCommands.cpp
+    PartitionCommands.cpp
+    ReadInOrderOptimizer.cpp
+    SelectQueryDescription.cpp
+    SetSettings.cpp
+    StorageBuffer.cpp
+    StorageDictionary.cpp
+    StorageDistributed.cpp
+    StorageFactory.cpp
+    StorageFile.cpp
+    StorageGenerateRandom.cpp
+    StorageInMemoryMetadata.cpp
+    StorageInput.cpp
+    StorageJoin.cpp
+    StorageLog.cpp
+    StorageLogSettings.cpp
+    StorageMaterializeMySQL.cpp
+    StorageMaterializedView.cpp
+    StorageMemory.cpp
+    StorageMerge.cpp
+    StorageMergeTree.cpp
+    StorageMongoDB.cpp
+    StorageMySQL.cpp
+    StorageNull.cpp
+    StorageReplicatedMergeTree.cpp
+    StorageSet.cpp
+    StorageStripeLog.cpp
+    StorageTinyLog.cpp
+    StorageURL.cpp
+    StorageValues.cpp
+    StorageView.cpp
+    StorageXDBC.cpp
     System/StorageSystemAggregateFunctionCombinators.cpp
     System/StorageSystemAsynchronousMetrics.cpp
     System/StorageSystemBuildOptions.cpp
     System/StorageSystemClusters.cpp
-    System/StorageSystemCurrentRoles.cpp
     System/StorageSystemCollations.cpp
     System/StorageSystemColumns.cpp
     System/StorageSystemContributors.cpp
     System/StorageSystemContributors.generated.cpp
-    System/StorageSystemDatabases.cpp
+    System/StorageSystemCurrentRoles.cpp
     System/StorageSystemDataTypeFamilies.cpp
+    System/StorageSystemDatabases.cpp
     System/StorageSystemDetachedParts.cpp
     System/StorageSystemDictionaries.cpp
     System/StorageSystemDisks.cpp
+    System/StorageSystemDistributionQueue.cpp
     System/StorageSystemEnabledRoles.cpp
+    System/StorageSystemErrors.cpp
     System/StorageSystemEvents.cpp
     System/StorageSystemFormats.cpp
     System/StorageSystemFunctions.cpp
     System/StorageSystemGrants.cpp
     System/StorageSystemGraphite.cpp
     System/StorageSystemMacros.cpp
-    System/StorageSystemMerges.cpp
     System/StorageSystemMergeTreeSettings.cpp
+    System/StorageSystemMerges.cpp
     System/StorageSystemMetrics.cpp
     System/StorageSystemModels.cpp
     System/StorageSystemMutations.cpp
@@ -120,8 +178,8 @@ SRCS(
     System/StorageSystemQuotas.cpp
     System/StorageSystemQuotasUsage.cpp
     System/StorageSystemReplicas.cpp
+    System/StorageSystemReplicatedFetches.cpp
     System/StorageSystemReplicationQueue.cpp
-    System/StorageSystemDistributionQueue.cpp
     System/StorageSystemRoleGrants.cpp
     System/StorageSystemRoles.cpp
     System/StorageSystemRowPolicies.cpp
@@ -133,50 +191,18 @@ SRCS(
     System/StorageSystemTableEngines.cpp
     System/StorageSystemTableFunctions.cpp
     System/StorageSystemTables.cpp
+    System/StorageSystemUserDirectories.cpp
     System/StorageSystemUsers.cpp
     System/StorageSystemZeros.cpp
     System/StorageSystemZooKeeper.cpp
-    AlterCommands.cpp
-    ColumnDefault.cpp
-    ColumnsDescription.cpp
-    ConstraintsDescription.cpp
-    getStructureOfRemoteTable.cpp
-    IndicesDescription.cpp
-    IStorage.cpp
-    MutationCommands.cpp
-    PartitionCommands.cpp
-    ReadInOrderOptimizer.cpp
-    registerStorages.cpp
-    StorageBuffer.cpp
-    StorageDictionary.cpp
-    StorageDistributed.cpp
-    StorageFactory.cpp
-    StorageFile.cpp
-    StorageGenerateRandom.cpp
-    StorageInMemoryMetadata.cpp
-    StorageInput.cpp
-    StorageJoin.cpp
-    StorageLog.cpp
-    StorageLogSettings.cpp
-    StorageMaterializedView.cpp
-    StorageMemory.cpp
-    StorageMerge.cpp
-    StorageMergeTree.cpp
-    StorageMySQL.cpp
-    StorageNull.cpp
-    StorageReplicatedMergeTree.cpp
-    StorageS3Settings.cpp
-    StorageSet.cpp
-    StorageStripeLog.cpp
-    StorageTinyLog.cpp
-    StorageURL.cpp
-    StorageValues.cpp
-    StorageView.cpp
-    StorageXDBC.cpp
-    transformQueryForExternalDatabase.cpp
+    System/attachSystemTables.cpp
+    TTLDescription.cpp
     VirtualColumnUtils.cpp
     extractKeyExpressionList.cpp
-    TTLDescription.cpp
+    getStructureOfRemoteTable.cpp
+    registerStorages.cpp
+    transformQueryForExternalDatabase.cpp
+
 )
 
 END()

@@ -4,12 +4,13 @@
 #include <Storages/IStorage.h>
 #include <Storages/Kafka/Buffer_fwd.h>
 #include <Storages/Kafka/KafkaSettings.h>
-#include <Interpreters/Context.h>
+#include <Common/SettingsChanges.h>
 
 #include <Poco/Semaphore.h>
 #include <ext/shared_ptr_helper.h>
 
 #include <mutex>
+#include <list>
 #include <atomic>
 
 namespace cppkafka
@@ -22,12 +23,16 @@ class Configuration;
 namespace DB
 {
 
+struct StorageKafkaInterceptors;
+
 /** Implements a Kafka queue table engine that can be used as a persistent queue / buffer,
   * or as a basic building block for creating pipelines with a continuous insertion / ETL.
   */
 class StorageKafka final : public ext::shared_ptr_helper<StorageKafka>, public IStorage
 {
     friend struct ext::shared_ptr_helper<StorageKafka>;
+    friend struct StorageKafkaInterceptors;
+
 public:
     std::string getName() const override { return "Kafka"; }
 
@@ -37,9 +42,10 @@ public:
     void startup() override;
     void shutdown() override;
 
-    Pipes read(
+    Pipe read(
         const Names & column_names,
-        const SelectQueryInfo & query_info,
+        const StorageMetadataPtr & /*metadata_snapshot*/,
+        SelectQueryInfo & query_info,
         const Context & context,
         QueryProcessingStage::Enum processed_stage,
         size_t max_block_size,
@@ -47,6 +53,7 @@ public:
 
     BlockOutputStreamPtr write(
         const ASTPtr & query,
+        const StorageMetadataPtr & /*metadata_snapshot*/,
         const Context & context) override;
 
     void pushReadBuffer(ConsumerBufferPtr buf);
@@ -61,14 +68,13 @@ public:
 protected:
     StorageKafka(
         const StorageID & table_id_,
-        Context & context_,
+        const Context & context_,
         const ColumnsDescription & columns_,
         std::unique_ptr<KafkaSettings> kafka_settings_);
 
 private:
     // Configuration and state
-    Context & global_context;
-    std::shared_ptr<Context> kafka_context;
+    const Context & global_context;
     std::unique_ptr<KafkaSettings> kafka_settings;
     const Names topics;
     const String brokers;
@@ -92,16 +98,27 @@ private:
     std::mutex mutex;
 
     // Stream thread
-    BackgroundSchedulePool::TaskHolder task;
-    std::atomic<bool> stream_cancelled{false};
+    struct TaskContext
+    {
+        BackgroundSchedulePool::TaskHolder holder;
+        std::atomic<bool> stream_cancelled {false};
+        explicit TaskContext(BackgroundSchedulePool::TaskHolder&& task_) : holder(std::move(task_))
+        {
+        }
+    };
+    std::vector<std::shared_ptr<TaskContext>> tasks;
+    bool thread_per_consumer = false;
+
+    /// For memory accounting in the librdkafka threads.
+    std::mutex thread_statuses_mutex;
+    std::list<std::shared_ptr<ThreadStatus>> thread_statuses;
 
     SettingsChanges createSettingsAdjustments();
     ConsumerBufferPtr createReadBuffer(const size_t consumer_number);
 
     // Update Kafka configuration with values from CH user configuration.
-
     void updateConfiguration(cppkafka::Configuration & conf);
-    void threadFunc();
+    void threadFunc(size_t idx);
 
     size_t getPollMaxBatchSize() const;
     size_t getMaxBlockSize() const;

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Regression for MemoryTracker that had been incorrectly accounted
-# (it was reseted before deallocation)
+# (it was reset before deallocation)
 #
 # For this will be used:
 # - two-level group by
@@ -9,7 +9,7 @@
 # - one users' query in background (to avoid reseting max_memory_usage_for_user)
 
 CURDIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-. $CURDIR/../shell_config.sh
+. "$CURDIR"/../shell_config.sh
 
 set -o pipefail
 
