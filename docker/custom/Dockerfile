@@ -4,7 +4,10 @@ ARG gosu_ver=1.10
 
 COPY bin/clickhouse /usr/bin/clickhouse
 COPY bin/clickhouse-odbc-bridge /usr/bin/clickhouse-odbc-bridge
-RUN ln -s /usr/bin/clickhouse /usr/bin/clickhouse-benchmark && \
+
+RUN apt update && apt -y install libcap2-bin locales locales-all && \
+    locale-gen en_US.UTF-8 && \
+    ln -s /usr/bin/clickhouse /usr/bin/clickhouse-benchmark && \
     ln -s /usr/bin/clickhouse /usr/bin/clickhouse-client && \
     ln -s /usr/bin/clickhouse /usr/bin/clickhouse-compressor && \
     ln -s /usr/bin/clickhouse /usr/bin/clickhouse-copier && \
@@ -26,7 +29,6 @@ COPY config/clickhouse.limits /etc/security/limits.d/clickhouse.conf
 COPY config/clickhouse-client.xml /etc/clickhouse-client/config.xml
 COPY entrypoint.sh /entrypoint.sh
 
-RUN apt update && apt install -y locales locales-all && locale-gen en_US.UTF-8
 ENV LANG=en_US.UTF-8 \
     LANGUAGE=en_US:en \
     LC_ALL=en_US.UTF-8 \
@@ -42,6 +44,10 @@ RUN chmod +x /entrypoint.sh /bin/gosu && \
 
 EXPOSE 9000 8123 9009
 VOLUME /var/lib/clickhouse
+
+RUN setcap cap_sys_nice=+ep /usr/bin/clickhouse && \
+    setcap cap_net_admin=+ep /usr/bin/clickhouse && \
+    setcap cap_ipc_lock=+ep /usr/bin/clickhouse
 
 USER clickhouse
 
