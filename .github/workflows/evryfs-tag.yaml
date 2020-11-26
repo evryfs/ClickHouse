@@ -37,17 +37,17 @@ jobs:
     - name: Build ClickHouse image from built binaries
       run: |
         cd docker/custom
-        /bin/bash setup.sh
+        sudo /bin/bash setup.sh
         docker build --network=host -t clickhouse-server .
 
     - name: Docker Login
-      run: echo "$GITHUB_TOKEN" | docker login -u "$GITHUB_ACTOR" --password-stdin docker.pkg.github.com
+      run: echo "$GITHUB_TOKEN" | docker login -u "$GITHUB_ACTOR" --password-stdin ghcr.io
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.PR_CAT }}
 
     - name: Tag and Push Image
       run: |
         tag=${GITHUB_REF##*/}
-        final_repo=docker.pkg.github.com/${{ github.repository }}/clickhouse-server:${tag}
+        final_repo=ghcr.io/evryfs/clickhouse-server:${tag}
         docker tag clickhouse-server $final_repo
         docker push $final_repo
