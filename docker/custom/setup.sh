@@ -12,4 +12,3 @@ cp ../../programs/server/users.xml config/
 cp ../../docker/server/docker_related_config.xml config/
 cp ../../debian/clickhouse.limits config/
 cp ../../programs/client/clickhouse-client.xml config/
-cp ../server/entrypoint.sh entrypoint.sh
