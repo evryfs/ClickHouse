@@ -36,10 +36,12 @@ enum class PoolType
     FETCH,
 };
 
+using BackgroundJobFunc = std::function<bool()>;
+
 /// Result from background job providers. Function which will be executed in pool and pool type.
 struct JobAndPool
 {
-    ThreadPool::Job job;
+    BackgroundJobFunc job;
     PoolType pool_type;
 };
 
@@ -117,7 +119,9 @@ private:
     /// Function that executes in background scheduling pool
     void jobExecutingTask();
     /// Recalculate timeouts when we have to check for a new job
-    void scheduleTask(bool job_done, bool with_backoff=false);
+    void scheduleTask(bool with_backoff);
+    /// Run background task as fast as possible and reset errors counter
+    void runTaskWithoutDelay();
     /// Return random add for sleep in case of error
     double getSleepRandomAdd();
 };

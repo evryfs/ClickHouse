@@ -1,9 +1,8 @@
 import os
 import pytest
-import subprocess
 import sys
 import grpc
-from helpers.cluster import ClickHouseCluster
+from helpers.cluster import ClickHouseCluster, run_and_check
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -13,7 +12,7 @@ SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 proto_dir = os.path.join(SCRIPT_DIR, './protos')
 gen_dir = os.path.join(SCRIPT_DIR, './_gen')
 os.makedirs(gen_dir, exist_ok=True)
-subprocess.check_call(
+run_and_check(
     'python3 -m grpc_tools.protoc -I{proto_dir} --python_out={gen_dir} --grpc_python_out={gen_dir} \
     {proto_dir}/clickhouse_grpc.proto'.format(proto_dir=proto_dir, gen_dir=gen_dir), shell=True)
 
@@ -25,7 +24,7 @@ import clickhouse_grpc_pb2_grpc
 # Utilities
 
 node_ip = '10.5.172.77' # It's important for the node to work at this IP because 'server-cert.pem' requires that (see server-ext.cnf).
-grpc_port = 9001
+grpc_port = 9100
 node_ip_with_grpc_port = node_ip + ':' + str(grpc_port)
 config_dir = os.path.join(SCRIPT_DIR, './configs')
 cluster = ClickHouseCluster(__file__)

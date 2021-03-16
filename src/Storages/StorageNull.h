@@ -41,15 +41,15 @@ public:
         return std::make_shared<NullBlockOutputStream>(metadata_snapshot->getSampleBlock());
     }
 
-    void checkAlterIsPossible(const AlterCommands & commands, const Settings & /* settings */) const override;
+    void checkAlterIsPossible(const AlterCommands & commands, const Context & context) const override;
 
     void alter(const AlterCommands & params, const Context & context, TableLockHolder & table_lock_holder) override;
 
-    std::optional<UInt64> totalRows() const override
+    std::optional<UInt64> totalRows(const Settings &) const override
     {
         return {0};
     }
-    std::optional<UInt64> totalBytes() const override
+    std::optional<UInt64> totalBytes(const Settings &) const override
     {
         return {0};
     }

@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 import argparse
 import clickhouse_driver
@@ -44,6 +44,7 @@ parser.add_argument('--port', nargs='*', default=[9000], help="Space-separated l
 parser.add_argument('--runs', type=int, default=1, help='Number of query runs per server.')
 parser.add_argument('--max-queries', type=int, default=None, help='Test no more than this number of queries, chosen at random.')
 parser.add_argument('--queries-to-run', nargs='*', type=int, default=None, help='Space-separated list of indexes of queries to test.')
+parser.add_argument('--max-query-seconds', type=int, default=10, help='For how many seconds at most a query is allowed to run. The script finishes with error if this time is exceeded.')
 parser.add_argument('--profile-seconds', type=int, default=0, help='For how many seconds to profile a query for which the performance has changed.')
 parser.add_argument('--long', action='store_true', help='Do not skip the tests tagged as long.')
 parser.add_argument('--print-queries', action='store_true', help='Print test queries and exit.')
@@ -143,7 +144,8 @@ reportStageEnd('before-connect')
 
 # Open connections
 servers = [{'host': host or args.host[0], 'port': port or args.port[0]} for (host, port) in itertools.zip_longest(args.host, args.port)]
-all_connections = [clickhouse_driver.Client(**server) for server in servers]
+# Force settings_is_important to fail queries on unknown settings.
+all_connections = [clickhouse_driver.Client(**server, settings_is_important=True) for server in servers]
 
 for i, s in enumerate(servers):
     print(f'server\t{i}\t{s["host"]}\t{s["port"]}')
@@ -167,12 +169,6 @@ if not args.use_existing_tables:
     reportStageEnd('drop-1')
 
 # Apply settings.
-# If there are errors, report them and continue -- maybe a new test uses a setting
-# that is not in master, but the queries can still run. If we have multiple
-# settings and one of them throws an exception, all previous settings for this
-# connection will be reset, because the driver reconnects on error (not
-# configurable). So the end result is uncertain, but hopefully we'll be able to
-# run at least some queries.
 settings = root.findall('settings/*')
 for conn_index, c in enumerate(all_connections):
     for s in settings:
@@ -328,7 +324,7 @@ for query_index in queries_to_run:
             server_seconds += elapsed
             print(f'query\t{query_index}\t{run_id}\t{conn_index}\t{elapsed}')
 
-            if elapsed > 10:
+            if elapsed > args.max_query_seconds:
                 # Stop processing pathologically slow queries, to avoid timing out
                 # the entire test task. This shouldn't really happen, so we don't
                 # need much handling for this case and can just exit.
@@ -415,4 +411,4 @@ if not args.keep_created_tables and not args.use_existing_tables:
             c.execute(q)
             print(f'drop\t{conn_index}\t{c.last_query.elapsed}\t{tsv_escape(q)}')
 
-reportStageEnd('drop-2')
+    reportStageEnd('drop-2')

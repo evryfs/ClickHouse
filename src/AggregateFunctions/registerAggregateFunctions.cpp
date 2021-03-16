@@ -11,6 +11,7 @@ class AggregateFunctionFactory;
 void registerAggregateFunctionAvg(AggregateFunctionFactory &);
 void registerAggregateFunctionAvgWeighted(AggregateFunctionFactory &);
 void registerAggregateFunctionCount(AggregateFunctionFactory &);
+void registerAggregateFunctionDeltaSum(AggregateFunctionFactory &);
 void registerAggregateFunctionGroupArray(AggregateFunctionFactory &);
 void registerAggregateFunctionGroupUniqArray(AggregateFunctionFactory &);
 void registerAggregateFunctionGroupArrayInsertAt(AggregateFunctionFactory &);
@@ -18,7 +19,9 @@ void registerAggregateFunctionsQuantile(AggregateFunctionFactory &);
 void registerAggregateFunctionsSequenceMatch(AggregateFunctionFactory &);
 void registerAggregateFunctionWindowFunnel(AggregateFunctionFactory &);
 void registerAggregateFunctionRate(AggregateFunctionFactory &);
-void registerAggregateFunctionsMinMaxAny(AggregateFunctionFactory &);
+void registerAggregateFunctionsMin(AggregateFunctionFactory &);
+void registerAggregateFunctionsMax(AggregateFunctionFactory &);
+void registerAggregateFunctionsAny(AggregateFunctionFactory &);
 void registerAggregateFunctionsStatisticsStable(AggregateFunctionFactory &);
 void registerAggregateFunctionsStatisticsSimple(AggregateFunctionFactory &);
 void registerAggregateFunctionSum(AggregateFunctionFactory &);
@@ -32,27 +35,30 @@ void registerAggregateFunctionsBitmap(AggregateFunctionFactory &);
 void registerAggregateFunctionsMaxIntersections(AggregateFunctionFactory &);
 void registerAggregateFunctionHistogram(AggregateFunctionFactory &);
 void registerAggregateFunctionRetention(AggregateFunctionFactory &);
-void registerAggregateFunctionTimeSeriesGroupSum(AggregateFunctionFactory &);
 void registerAggregateFunctionMLMethod(AggregateFunctionFactory &);
 void registerAggregateFunctionEntropy(AggregateFunctionFactory &);
 void registerAggregateFunctionSimpleLinearRegression(AggregateFunctionFactory &);
 void registerAggregateFunctionMoving(AggregateFunctionFactory &);
 void registerAggregateFunctionCategoricalIV(AggregateFunctionFactory &);
 void registerAggregateFunctionAggThrow(AggregateFunctionFactory &);
+void registerAggregateFunctionRankCorrelation(AggregateFunctionFactory &);
+void registerAggregateFunctionMannWhitney(AggregateFunctionFactory &);
 void registerAggregateFunctionWelchTTest(AggregateFunctionFactory &);
 void registerAggregateFunctionStudentTTest(AggregateFunctionFactory &);
-void registerAggregateFunctionRankCorrelation(AggregateFunctionFactory &);
 
 class AggregateFunctionCombinatorFactory;
 void registerAggregateFunctionCombinatorIf(AggregateFunctionCombinatorFactory &);
 void registerAggregateFunctionCombinatorArray(AggregateFunctionCombinatorFactory &);
 void registerAggregateFunctionCombinatorForEach(AggregateFunctionCombinatorFactory &);
+void registerAggregateFunctionCombinatorSimpleState(AggregateFunctionCombinatorFactory &);
 void registerAggregateFunctionCombinatorState(AggregateFunctionCombinatorFactory &);
 void registerAggregateFunctionCombinatorMerge(AggregateFunctionCombinatorFactory &);
 void registerAggregateFunctionCombinatorNull(AggregateFunctionCombinatorFactory &);
 void registerAggregateFunctionCombinatorOrFill(AggregateFunctionCombinatorFactory &);
 void registerAggregateFunctionCombinatorResample(AggregateFunctionCombinatorFactory &);
 void registerAggregateFunctionCombinatorDistinct(AggregateFunctionCombinatorFactory &);
+
+void registerWindowFunctions(AggregateFunctionFactory & factory);
 
 
 void registerAggregateFunctions()
@@ -63,6 +69,7 @@ void registerAggregateFunctions()
         registerAggregateFunctionAvg(factory);
         registerAggregateFunctionAvgWeighted(factory);
         registerAggregateFunctionCount(factory);
+        registerAggregateFunctionDeltaSum(factory);
         registerAggregateFunctionGroupArray(factory);
         registerAggregateFunctionGroupUniqArray(factory);
         registerAggregateFunctionGroupArrayInsertAt(factory);
@@ -70,7 +77,9 @@ void registerAggregateFunctions()
         registerAggregateFunctionsSequenceMatch(factory);
         registerAggregateFunctionWindowFunnel(factory);
         registerAggregateFunctionRate(factory);
-        registerAggregateFunctionsMinMaxAny(factory);
+        registerAggregateFunctionsMin(factory);
+        registerAggregateFunctionsMax(factory);
+        registerAggregateFunctionsAny(factory);
         registerAggregateFunctionsStatisticsStable(factory);
         registerAggregateFunctionsStatisticsSimple(factory);
         registerAggregateFunctionSum(factory);
@@ -86,7 +95,6 @@ void registerAggregateFunctions()
         registerAggregateFunctionsMaxIntersections(factory);
         registerAggregateFunctionHistogram(factory);
         registerAggregateFunctionRetention(factory);
-        registerAggregateFunctionTimeSeriesGroupSum(factory);
         registerAggregateFunctionMLMethod(factory);
         registerAggregateFunctionEntropy(factory);
         registerAggregateFunctionSimpleLinearRegression(factory);
@@ -94,6 +102,11 @@ void registerAggregateFunctions()
         registerAggregateFunctionCategoricalIV(factory);
         registerAggregateFunctionAggThrow(factory);
         registerAggregateFunctionRankCorrelation(factory);
+        registerAggregateFunctionMannWhitney(factory);
+        registerAggregateFunctionWelchTTest(factory);
+        registerAggregateFunctionStudentTTest(factory);
+
+        registerWindowFunctions(factory);
     }
 
     {
@@ -102,6 +115,7 @@ void registerAggregateFunctions()
         registerAggregateFunctionCombinatorIf(factory);
         registerAggregateFunctionCombinatorArray(factory);
         registerAggregateFunctionCombinatorForEach(factory);
+        registerAggregateFunctionCombinatorSimpleState(factory);
         registerAggregateFunctionCombinatorState(factory);
         registerAggregateFunctionCombinatorMerge(factory);
         registerAggregateFunctionCombinatorNull(factory);
